@@ -106,7 +106,8 @@ class UsageStatistics:
 
         for attempt in range(self.retry_count):
             try:
-                timeout = aiohttp.ClientTimeout(total=self.timeout)
+                # 使用更短的超时时间，避免阻塞主功能
+                timeout = aiohttp.ClientTimeout(total=min(self.timeout, 10))
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     headers = {
                         'Content-Type': 'application/json',
@@ -126,12 +127,23 @@ class UsageStatistics:
 
             except asyncio.TimeoutError:
                 logger.debug(f"统计数据上报超时，第{attempt + 1}次尝试")
+                # 超时后快速失败，不影响主功能
+                if attempt >= 1:  # 最多重试2次
+                    break
+            except aiohttp.ClientError as e:
+                logger.debug(f"统计数据上报网络错误: {e}")
+                # 网络错误时快速失败
+                break
             except Exception as e:
                 logger.debug(f"统计数据上报异常: {e}")
+                # 其他异常也快速失败，避免影响主功能
+                break
 
             if attempt < self.retry_count - 1:
-                await asyncio.sleep(1)
+                # 使用更短的重试间隔
+                await asyncio.sleep(0.5)
 
+        logger.debug("统计数据上报失败，但不影响主要功能")
         return False
     
     async def report_usage(self) -> bool:

@@ -103,6 +103,7 @@ async def main():
             logger.info(f"跳过禁用的 Cookie: {cid}")
             continue
 
+        task = None
         try:
             # 直接启动任务，不重新保存到数据库
             from db_manager import db_manager
@@ -120,6 +121,26 @@ async def main():
             logger.error(f"启动 Cookie 任务失败: {cid}, {e}")
             import traceback
             logger.error(f"详细错误信息: {traceback.format_exc()}")
+            
+            # 资源清理：如果任务已创建但添加到管理器失败，需要取消任务
+            if task is not None and not task.done():
+                logger.info(f"取消失败的任务: {cid}")
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"任务已成功取消: {cid}")
+                except Exception as cancel_error:
+                    logger.error(f"取消任务时发生错误: {cid}, {cancel_error}")
+            
+            # 确保从管理器中移除失败的任务记录
+            if cid in manager.tasks:
+                logger.info(f"从管理器中移除失败的任务记录: {cid}")
+                del manager.tasks[cid]
+            
+            # 标记Cookie为禁用状态，避免重复尝试
+            manager.cookie_status[cid] = False
+            logger.info(f"已将失败的Cookie标记为禁用: {cid}")
     
     # 2) 如果配置文件中有新的 Cookie，也加载它们
     for entry in COOKIES_LIST:

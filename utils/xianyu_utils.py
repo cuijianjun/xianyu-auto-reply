@@ -53,18 +53,69 @@ except Exception as e:
         except FileNotFoundError:
             logger.error("未找到Node.js可执行文件")
 
-    raise RuntimeError(f"无法加载JavaScript文件: {error_msg}")
+    # 提供降级方案
+    logger.warning("JavaScript运行时不可用，将使用Python实现的降级方案")
+    xianyu_js = None  # 标记JavaScript不可用
+    
+    # 可以在这里添加Python实现的替代方案
+    logger.info("注意：某些功能可能受限，建议安装Node.js以获得完整功能")
 
 def trans_cookies(cookies_str: str) -> dict:
     """将cookies字符串转换为字典"""
     if not cookies_str:
-        raise ValueError("cookies不能为空")
+        logger.warning("cookies字符串为空，返回空字典")
+        return {}
+    
+    # 清理cookies字符串，移除多余的空白字符
+    cookies_str = cookies_str.strip()
+    if not cookies_str:
+        logger.warning("cookies字符串只包含空白字符，返回空字典")
+        return {}
         
     cookies = {}
-    for cookie in cookies_str.split("; "):
-        if "=" in cookie:
-            key, value = cookie.split("=", 1)
-            cookies[key] = value
+    try:
+        # 支持多种分隔符格式
+        separators = ["; ", ";", " ; "]
+        cookie_pairs = []
+        
+        for sep in separators:
+            if sep in cookies_str:
+                cookie_pairs = cookies_str.split(sep)
+                break
+        else:
+            # 如果没有找到标准分隔符，尝试按空格分割
+            cookie_pairs = [cookies_str]
+        
+        for cookie in cookie_pairs:
+            cookie = cookie.strip()
+            if not cookie:
+                continue
+                
+            if "=" in cookie:
+                try:
+                    key, value = cookie.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # 验证key不为空
+                    if key:
+                        cookies[key] = value
+                    else:
+                        logger.warning(f"忽略无效的cookie项（key为空）: {cookie}")
+                except Exception as e:
+                    logger.warning(f"解析cookie项失败: {cookie}, 错误: {e}")
+                    continue
+            else:
+                logger.warning(f"忽略无效的cookie项（缺少=）: {cookie}")
+                
+    except Exception as e:
+        logger.error(f"Cookie解析过程中发生错误: {e}")
+        # 返回空字典而不是抛出异常，保证程序继续运行
+        return {}
+        
+    if not cookies:
+        logger.warning("未能解析出任何有效的cookie")
+        
     return cookies
 
 

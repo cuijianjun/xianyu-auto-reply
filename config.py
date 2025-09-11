@@ -1,5 +1,6 @@
 import os
 import yaml
+import threading
 from typing import Dict, Any
 
 class Config:
@@ -11,11 +12,14 @@ class Config:
     
     _instance = None
     _config = {}
+    _lock = threading.Lock()  # 线程锁保护单例创建
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Config, cls).__new__(cls)
-            cls._instance._load_config()
+            with cls._lock:  # 使用双重检查锁定模式
+                if cls._instance is None:
+                    cls._instance = super(Config, cls).__new__(cls)
+                    cls._instance._load_config()
         return cls._instance
 
     def _load_config(self):

@@ -26,6 +26,8 @@ class AutoReplyPauseManager:
     def __init__(self):
         # 存储每个chat_id的暂停信息 {chat_id: pause_until_timestamp}
         self.paused_chats = {}
+        self.last_cleanup_time = time.time()
+        self.cleanup_interval = 300  # 5分钟清理一次过期记录
 
     def pause_chat(self, chat_id: str, cookie_id: str):
         """暂停指定chat_id的自动回复，使用账号特定的暂停时间"""
@@ -52,6 +54,9 @@ class AutoReplyPauseManager:
 
     def is_chat_paused(self, chat_id: str) -> bool:
         """检查指定chat_id是否处于暂停状态"""
+        # 定期自动清理过期记录
+        self.auto_cleanup_if_needed()
+        
         if chat_id not in self.paused_chats:
             return False
 
@@ -84,15 +89,36 @@ class AutoReplyPauseManager:
 
         for chat_id in expired_chats:
             del self.paused_chats[chat_id]
+            
+        if expired_chats:
+            logger.debug(f"清理了 {len(expired_chats)} 个过期的暂停记录")
+            
+        self.last_cleanup_time = current_time
+
+    def auto_cleanup_if_needed(self):
+        """如果需要，自动清理过期记录"""
+        current_time = time.time()
+        if current_time - self.last_cleanup_time >= self.cleanup_interval:
+            self.cleanup_expired_pauses()
 
 
 # 全局暂停管理器实例
 pause_manager = AutoReplyPauseManager()
 
-# 日志配置
-log_dir = 'logs'
-os.makedirs(log_dir, exist_ok=True)
-log_path = os.path.join(log_dir, f"xianyu_{time.strftime('%Y-%m-%d')}.log")
+# 日志配置 - 从配置文件读取或使用默认值
+log_dir = LOG_CONFIG.get('log_dir', 'logs')
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except PermissionError:
+    # 如果无法创建指定目录，使用当前目录
+    logger.warning(f"无法创建日志目录 {log_dir}，使用当前目录")
+    log_dir = '.'
+except Exception as e:
+    logger.error(f"创建日志目录失败: {e}，使用当前目录")
+    log_dir = '.'
+
+log_filename = LOG_CONFIG.get('log_filename', f"xianyu_{time.strftime('%Y-%m-%d')}.log")
+log_path = os.path.join(log_dir, log_filename)
 logger.remove()
 logger.add(
     log_path,
@@ -221,6 +247,12 @@ class XianyuLive:
         self.connection_failures = 0  # 连续连接失败次数
         self.max_connection_failures = 5  # 最大连续失败次数
         self.last_successful_connection = 0  # 上次成功连接时间
+        self.base_retry_delay = 3  # 基础重试延迟（秒）
+        self.max_retry_delay = 300  # 最大重试延迟（5分钟）
+        self.exponential_backoff_factor = 2  # 指数退避因子
+        self.connection_timeout = 30  # 连接超时时间（秒）
+        self.total_retry_attempts = 0  # 总重试次数
+        self.max_total_retries = 100  # 最大总重试次数
 
         # 注册实例到类级别字典（用于API调用）
         self._register_instance()
@@ -4974,26 +5006,38 @@ class XianyuLive:
                 except Exception as e:
                     error_msg = self._safe_str(e)
                     self.connection_failures += 1
+                    self.total_retry_attempts += 1
 
-                    logger.error(f"WebSocket连接异常 ({self.connection_failures}/{self.max_connection_failures}): {error_msg}")
+                    logger.error(f"WebSocket连接异常 ({self.connection_failures}/{self.max_connection_failures}, 总计:{self.total_retry_attempts}/{self.max_total_retries}): {error_msg}")
 
-                    # 检查是否超过最大失败次数
+                    # 检查是否超过总重试次数限制
+                    if self.total_retry_attempts >= self.max_total_retries:
+                        logger.error(f"【{self.cookie_id}】总重试次数已达到上限{self.max_total_retries}次，停止重连")
+                        break
+
+                    # 检查是否超过连续失败次数
                     if self.connection_failures >= self.max_connection_failures:
                         logger.error(f"【{self.cookie_id}】连续连接失败{self.max_connection_failures}次，暂停重试30分钟")
                         await asyncio.sleep(1800)  # 暂停30分钟
                         self.connection_failures = 0  # 重置失败计数
                         continue
 
-                    # 根据错误类型和失败次数决定处理策略
+                    # 根据错误类型和失败次数决定处理策略，使用指数退避
                     if "no close frame received or sent" in error_msg:
                         logger.info(f"【{self.cookie_id}】检测到WebSocket连接意外断开，准备重新连接...")
-                        retry_delay = min(3 * self.connection_failures, 15)  # 递增重试间隔，最大15秒
+                        base_delay = self.base_retry_delay
                     elif "Connection refused" in error_msg or "timeout" in error_msg.lower():
                         logger.warning(f"【{self.cookie_id}】网络连接问题，延长重试间隔...")
-                        retry_delay = min(10 * self.connection_failures, 60)  # 递增重试间隔，最大60秒
+                        base_delay = self.base_retry_delay * 2  # 网络问题时使用更长的基础延迟
                     else:
                         logger.warning(f"【{self.cookie_id}】未知WebSocket错误，使用默认重试间隔...")
-                        retry_delay = min(5 * self.connection_failures, 30)  # 递增重试间隔，最大30秒
+                        base_delay = self.base_retry_delay
+                    
+                    # 计算指数退避延迟
+                    retry_delay = min(
+                        base_delay * (self.exponential_backoff_factor ** (self.connection_failures - 1)),
+                        self.max_retry_delay
+                    )
 
                     # 清空当前token，确保重新连接时会重新获取
                     if self.current_token:

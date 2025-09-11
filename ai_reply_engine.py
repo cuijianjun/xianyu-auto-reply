@@ -19,6 +19,7 @@ class AIReplyEngine:
     
     def __init__(self):
         self.clients = {}  # 存储不同账号的OpenAI客户端
+        self.client_configs = {}  # 存储客户端配置用于变更检测
         self.agents = {}   # 存储不同账号的Agent实例
         self._init_default_prompts()
     
@@ -55,10 +56,31 @@ class AIReplyEngine:
     
     def get_client(self, cookie_id: str) -> Optional[OpenAI]:
         """获取指定账号的OpenAI客户端"""
-        if cookie_id not in self.clients:
-            settings = db_manager.get_ai_reply_settings(cookie_id)
-            if not settings['ai_enabled'] or not settings['api_key']:
-                return None
+        settings = db_manager.get_ai_reply_settings(cookie_id)
+        if not settings['ai_enabled'] or not settings['api_key']:
+            # 如果AI功能被禁用或没有API密钥，清理已存在的客户端
+            if cookie_id in self.clients:
+                logger.info(f"AI功能已禁用或API密钥为空，清理客户端: {cookie_id}")
+                del self.clients[cookie_id]
+                if cookie_id in self.client_configs:
+                    del self.client_configs[cookie_id]
+            return None
+        
+        # 检查配置是否发生变更
+        current_config = {
+            'api_key': settings['api_key'],
+            'base_url': settings['base_url'],
+            'model_name': settings.get('model_name', ''),
+            'ai_enabled': settings['ai_enabled']
+        }
+        
+        # 如果客户端不存在或配置发生变更，重新创建
+        if (cookie_id not in self.clients or 
+            cookie_id not in self.client_configs or 
+            self.client_configs[cookie_id] != current_config):
+            
+            if cookie_id in self.clients:
+                logger.info(f"检测到配置变更，重新创建OpenAI客户端: {cookie_id}")
             
             try:
                 logger.info(f"创建OpenAI客户端 {cookie_id}: base_url={settings['base_url']}, api_key={'***' + settings['api_key'][-4:] if settings['api_key'] else 'None'}")
@@ -66,9 +88,16 @@ class AIReplyEngine:
                     api_key=settings['api_key'],
                     base_url=settings['base_url']
                 )
+                # 保存当前配置用于变更检测
+                self.client_configs[cookie_id] = current_config
                 logger.info(f"为账号 {cookie_id} 创建OpenAI客户端成功，实际base_url: {self.clients[cookie_id].base_url}")
             except Exception as e:
                 logger.error(f"创建OpenAI客户端失败 {cookie_id}: {e}")
+                # 清理失败的客户端和配置
+                if cookie_id in self.clients:
+                    del self.clients[cookie_id]
+                if cookie_id in self.client_configs:
+                    del self.client_configs[cookie_id]
                 return None
         
         return self.clients[cookie_id]

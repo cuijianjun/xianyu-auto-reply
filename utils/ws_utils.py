@@ -11,7 +11,14 @@ class WebSocketClient:
         self.on_message = on_message
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.is_connected = False
-        self.reconnect_delay = 5  # 重连延迟，单位秒
+        
+        # 重连配置
+        self.base_reconnect_delay = 3  # 基础重连延迟，单位秒
+        self.max_reconnect_delay = 300  # 最大重连延迟，5分钟
+        self.reconnect_backoff_factor = 2  # 指数退避因子
+        self.current_reconnect_delay = self.base_reconnect_delay
+        self.max_retry_attempts = 50  # 最大重试次数
+        self.retry_count = 0  # 当前重试次数
         
     async def connect(self):
         """建立WebSocket连接"""
@@ -66,9 +73,30 @@ class WebSocketClient:
             
     async def reconnect(self):
         """重新连接"""
-        logger.info(f"准备在{self.reconnect_delay}秒后重新连接...")
-        await asyncio.sleep(self.reconnect_delay)
-        return await self.connect()
+        self.retry_count += 1
+        
+        # 检查是否超过最大重试次数
+        if self.retry_count > self.max_retry_attempts:
+            logger.error(f"已达到最大重试次数 {self.max_retry_attempts}，停止重连")
+            return False
+            
+        logger.info(f"准备在{self.current_reconnect_delay}秒后重新连接... (第{self.retry_count}次重试)")
+        await asyncio.sleep(self.current_reconnect_delay)
+        
+        # 指数退避：增加下次重连延迟
+        self.current_reconnect_delay = min(
+            self.current_reconnect_delay * self.reconnect_backoff_factor,
+            self.max_reconnect_delay
+        )
+        
+        success = await self.connect()
+        if success:
+            # 连接成功，重置重试计数和延迟
+            self.retry_count = 0
+            self.current_reconnect_delay = self.base_reconnect_delay
+            logger.info("WebSocket重连成功，重置重试计数")
+            
+        return success
         
     async def run(self):
         """运行WebSocket客户端"""

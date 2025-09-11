@@ -37,13 +37,40 @@ class DBManager:
                 logger.error(f"创建数据目录失败: {e}")
                 raise
 
-        # 检查目录权限
-        if db_dir and os.path.exists(db_dir):
-            if not os.access(db_dir, os.W_OK):
-                logger.error(f"数据目录没有写权限: {db_dir}")
-                # 尝试使用当前目录
-                db_path = os.path.basename(db_path)
-                logger.warning(f"使用当前目录作为数据库路径: {db_path}")
+        # 改进的权限检查逻辑
+        if db_dir:
+            if os.path.exists(db_dir):
+                if not os.access(db_dir, os.W_OK):
+                    logger.error(f"数据目录没有写权限: {db_dir}")
+                    # 尝试多个备选目录
+                    fallback_dirs = [
+                        os.getcwd(),  # 当前工作目录
+                        os.path.expanduser("~"),  # 用户主目录
+                        "/tmp" if os.name != 'nt' else os.environ.get('TEMP', 'C:\\temp')  # 临时目录
+                    ]
+                    
+                    db_path = None
+                    for fallback_dir in fallback_dirs:
+                        if os.path.exists(fallback_dir) and os.access(fallback_dir, os.W_OK):
+                            db_path = os.path.join(fallback_dir, os.path.basename(self.db_path))
+                            logger.warning(f"使用备选目录作为数据库路径: {db_path}")
+                            break
+                    
+                    if not db_path:
+                        raise RuntimeError("无法找到具有写权限的目录来创建数据库文件")
+            else:
+                # 目录不存在，尝试创建
+                try:
+                    os.makedirs(db_dir, exist_ok=True)
+                    logger.info(f"成功创建数据目录: {db_dir}")
+                except PermissionError:
+                    logger.error(f"无权限创建数据目录: {db_dir}")
+                    # 使用当前目录作为备选
+                    db_path = os.path.basename(db_path)
+                    logger.warning(f"使用当前目录作为数据库路径: {db_path}")
+                except Exception as e:
+                    logger.error(f"创建数据目录失败: {db_dir}, 错误: {e}")
+                    raise RuntimeError(f"无法创建数据目录: {e}")
 
         self.db_path = db_path
         logger.info(f"数据库路径: {self.db_path}")
@@ -66,11 +93,12 @@ class DBManager:
     
     def init_db(self):
         """初始化数据库表结构"""
-        try:
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = self.conn.cursor()
-            
-            # 创建用户表
+        with self.lock:
+            try:
+                self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = self.conn.cursor()
+                
+                # 创建用户表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
