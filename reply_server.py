@@ -3584,6 +3584,8 @@ class BatchDeleteRequest(BaseModel):
 
 
 class AIReplySettings(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    
     ai_enabled: bool
     model_name: str = "qwen-plus"
     api_key: str = ""
