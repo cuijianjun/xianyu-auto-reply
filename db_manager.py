@@ -407,18 +407,52 @@ class DatabaseManager:
                 return None
 
     def get_all_cookies(self, user_id: int = None):
-        """获取所有Cookie（支持用户隔离）"""
+        """获取所有Cookie（支持用户隔离，兼容不同数据库结构）"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                if user_id is not None:
-                    self._execute_sql(cursor, "SELECT id, cookie FROM cookies WHERE user_id = ?", (user_id,))
-                else:
-                    self._execute_sql(cursor, "SELECT id, cookie FROM cookies")
-                return {row[0]: row[1] for row in cursor.fetchall()}
+                
+                # 首先检查表结构，确定正确的列名
+                try:
+                    cursor.execute("PRAGMA table_info(cookies)")
+                    columns = cursor.fetchall()
+                    column_names = [col[1] for col in columns]
+                    
+                    # 确定cookie值的列名
+                    cookie_column = 'cookie' if 'cookie' in column_names else 'value'
+                    
+                    # 构建查询语句
+                    if user_id is not None:
+                        query = f"SELECT id, {cookie_column}, user_id FROM cookies WHERE user_id = ?"
+                        self._execute_sql(cursor, query, (user_id,))
+                    else:
+                        query = f"SELECT id, {cookie_column}, user_id FROM cookies"
+                        self._execute_sql(cursor, query)
+                    
+                    # 返回列表格式，兼容 reply_server.py 的期望
+                    results = []
+                    for row in cursor.fetchall():
+                        cookie_dict = {
+                            'id': row[0],
+                            'cookie': row[1],  # 统一使用 'cookie' 作为键名
+                            'user_id': row[2] if len(row) > 2 else user_id
+                        }
+                        results.append(cookie_dict)
+                    
+                    return results
+                    
+                except Exception as schema_error:
+                    # 如果检查表结构失败，尝试使用默认的 cookie 列名
+                    logger.warning(f"检查表结构失败，使用默认列名: {schema_error}")
+                    if user_id is not None:
+                        self._execute_sql(cursor, "SELECT id, cookie FROM cookies WHERE user_id = ?", (user_id,))
+                    else:
+                        self._execute_sql(cursor, "SELECT id, cookie FROM cookies")
+                    return {row[0]: row[1] for row in cursor.fetchall()}
+                    
             except Exception as e:
                 logger.error(f"获取所有Cookie失败: {e}")
-                return {}
+                return [] if isinstance(e, Exception) and "column" in str(e).lower() else {}
 
     def delete_cookie(self, cookie_id):
         """删除Cookie"""

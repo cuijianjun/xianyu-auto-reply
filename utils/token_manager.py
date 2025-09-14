@@ -415,6 +415,26 @@ class XianyuTokenManager:
             }
         return status
     
+    async def refresh_token(self, cookie_id: str = None) -> Optional[str]:
+        """刷新Token - 兼容性方法"""
+        try:
+            if cookie_id is None:
+                # 如果没有指定cookie_id，刷新第一个可用的token
+                if not self.tokens:
+                    logger.warning("没有可用的Token需要刷新")
+                    return None
+                cookie_id = list(self.tokens.keys())[0]
+            
+            success = await self.force_refresh_token(cookie_id)
+            if success:
+                token_info = self.tokens.get(cookie_id)
+                return token_info.token if token_info else None
+            return None
+            
+        except Exception as e:
+            logger.error(f"刷新Token异常: {e}")
+            return None
+
     async def force_refresh_token(self, cookie_id: str) -> bool:
         """强制刷新指定账号的Token"""
         try:
