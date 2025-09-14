@@ -900,7 +900,16 @@ class XianyuLive:
                 'cookie': self.cookies_str
             }
 
-            async with aiohttp.ClientSession() as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # 创建连接器，禁用SSL验证
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(
                     API_ENDPOINTS.get('token'),
                     params=params,
@@ -1280,7 +1289,14 @@ class XianyuLive:
 
             timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get(api_url) as response:
                     if response.status == 200:
                         result = await response.json()
@@ -2106,7 +2122,14 @@ class XianyuLive:
             logger.info(f"📱 QQ通知 - 请求参数: qq={qq_number}, msg长度={len(message)}")
 
             # 发送GET请求
-            async with aiohttp.ClientSession() as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(api_url, params=params, timeout=10) as response:
                     response_text = await response.text()
                     logger.info(f"📱 QQ通知 - 响应状态: {response.status}")
@@ -2159,7 +2182,14 @@ class XianyuLive:
                 }
             }
 
-            async with aiohttp.ClientSession() as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(webhook_url, json=data, timeout=10) as response:
                     if response.status == 200:
                         logger.info(f"钉钉通知发送成功")
@@ -2295,7 +2325,14 @@ class XianyuLive:
             logger.info(f"📱 Bark通知 - 请求数据构建完成")
 
             # 发送POST请求
-            async with aiohttp.ClientSession() as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(api_url, json=data, timeout=10) as response:
                     response_text = await response.text()
                     logger.info(f"📱 Bark通知 - 响应状态: {response.status}")
@@ -2393,7 +2430,14 @@ class XianyuLive:
                 'source': 'xianyu-auto-reply'
             }
 
-            async with aiohttp.ClientSession() as session:
+            # 创建SSL上下文，跳过证书验证
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 if http_method == 'POST':
                     async with session.post(webhook_url, json=data, headers=headers, timeout=10) as response:
                         if response.status == 200:
@@ -3595,7 +3639,7 @@ class XianyuLive:
                     break
 
                 # 检查WebSocket连接状态
-                if ws.closed:
+                if hasattr(ws, 'closed') and ws.closed:
                     logger.warning(f"【{self.cookie_id}】WebSocket连接已关闭，停止心跳循环")
                     break
 
@@ -3705,7 +3749,7 @@ class XianyuLive:
             )
 
             # 重新启动心跳任务
-            if heartbeat_was_running and self.ws and not self.ws.closed:
+            if heartbeat_was_running and self.ws and hasattr(self.ws, 'closed') and not self.ws.closed:
                 logger.debug(f"【{self.cookie_id}】重新启动心跳任务")
                 self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(self.ws))
 
@@ -3726,7 +3770,7 @@ class XianyuLive:
             self.last_cookie_refresh_time = current_time
         finally:
             # 确保心跳任务恢复（如果WebSocket仍然连接）
-            if (self.ws and not self.ws.closed and
+            if (self.ws and hasattr(self.ws, 'closed') and not self.ws.closed and
                 (not self.heartbeat_task or self.heartbeat_task.done())):
                 logger.info(f"【{self.cookie_id}】Cookie刷新完成，心跳任务正常运行")
                 self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(self.ws))
@@ -5107,7 +5151,7 @@ class XianyuLive:
 
                     # 兼容不同版本的websockets库
                     websocket = await self._create_websocket_connection(headers)
-                    if websocket:
+                    if websocket and hasattr(websocket, 'closed'):
                         try:
                             logger.info(f"【{self.cookie_id}】WebSocket连接建立成功！")
                             self.ws = websocket
@@ -5160,7 +5204,7 @@ class XianyuLive:
                                     continue
                         finally:
                             # 确保WebSocket连接被正确关闭
-                            if websocket and not websocket.closed:
+                            if websocket and hasattr(websocket, 'closed') and not websocket.closed:
                                 try:
                                     await websocket.close()
                                     logger.info(f"【{self.cookie_id}】WebSocket连接已关闭")
