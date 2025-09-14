@@ -1135,6 +1135,16 @@ def add_cookie(item: CookieIn, current_user: Dict[str, Any] = Depends(get_curren
 
         log_with_user('info', f"尝试添加Cookie: {item.id}, 当前用户ID: {user_id}, 用户名: {current_user.get('username', 'unknown')}", current_user)
 
+        # 验证Cookie格式和必需字段
+        cookie_dict = trans_cookies(item.value)
+        if not cookie_dict:
+            log_with_user('error', f"Cookie格式无效: {item.id}", current_user)
+            raise HTTPException(status_code=400, detail="Cookie格式无效，请检查Cookie字符串格式")
+        
+        if 'unb' not in cookie_dict:
+            log_with_user('error', f"Cookie缺少必需的'unb'字段: {item.id}, 当前字段: {list(cookie_dict.keys())}", current_user)
+            raise HTTPException(status_code=400, detail=f"Cookie缺少必需的'unb'字段，当前字段: {list(cookie_dict.keys())}")
+
         # 检查cookie是否已存在且属于其他用户
         existing_cookies = db_manager.get_all_cookies()
         if item.id in existing_cookies:
@@ -1149,7 +1159,7 @@ def add_cookie(item: CookieIn, current_user: Dict[str, Any] = Depends(get_curren
 
         # 添加到CookieManager，同时指定用户ID
         cookie_manager.manager.add_cookie(item.id, item.value, user_id=user_id)
-        log_with_user('info', f"Cookie添加成功: {item.id}", current_user)
+        log_with_user('info', f"Cookie添加成功: {item.id}, UNB: {cookie_dict.get('unb')}", current_user)
         return {"msg": "success"}
     except HTTPException:
         raise
@@ -4537,6 +4547,220 @@ def get_user_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
         log_with_user('error', f"查询用户订单失败: {str(e)}", current_user)
         raise HTTPException(status_code=500, detail=f"查询订单失败: {str(e)}")
 
+
+# ======================== Cookie自动更新API接口 ========================
+
+class CookieAutoUpdateStatusResponse(BaseModel):
+    """Cookie自动更新状态响应"""
+    cookie_id: str
+    auto_update_enabled: bool
+    token_valid: bool
+    has_token: bool
+    account_enabled: bool
+
+class CookieAutoUpdateConfigResponse(BaseModel):
+    """Cookie自动更新配置响应"""
+    enabled: bool
+    refresh_interval: int
+    retry_interval: int
+    batch_size: int
+    timeout: int
+    auto_start: bool
+    log_level: str
+
+class BatchUpdateRequest(BaseModel):
+    """批量更新请求"""
+    cookie_ids: Optional[List[str]] = None  # 如果为None则更新所有启用的账号
+
+class BatchUpdateResponse(BaseModel):
+    """批量更新响应"""
+    results: Dict[str, bool]
+    success_count: int
+    total_count: int
+
+@app.get("/cookie-auto-update/status")
+def get_cookie_auto_update_status(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取所有账号的Cookie自动更新状态"""
+    try:
+        status_dict = cookie_manager.manager.get_cookie_auto_update_status()
+        
+        status_list = []
+        for cookie_id, status in status_dict.items():
+            status_list.append(CookieAutoUpdateStatusResponse(
+                cookie_id=cookie_id,
+                auto_update_enabled=status['auto_update_enabled'],
+                token_valid=status['token_valid'],
+                has_token=status['has_token'],
+                account_enabled=status['account_enabled']
+            ))
+        
+        return {
+            "success": True,
+            "data": status_list,
+            "message": "获取Cookie自动更新状态成功"
+        }
+    except Exception as e:
+        logger.error(f"获取Cookie自动更新状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+@app.get("/cookie-auto-update/status/{cookie_id}")
+def get_single_cookie_auto_update_status(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的Cookie自动更新状态"""
+    try:
+        status_dict = cookie_manager.manager.get_cookie_auto_update_status()
+        
+        if cookie_id not in status_dict:
+            raise HTTPException(status_code=404, detail=f"账号 {cookie_id} 不存在")
+        
+        status = status_dict[cookie_id]
+        return {
+            "success": True,
+            "data": CookieAutoUpdateStatusResponse(
+                cookie_id=cookie_id,
+                auto_update_enabled=status['auto_update_enabled'],
+                token_valid=status['token_valid'],
+                has_token=status['has_token'],
+                account_enabled=status['account_enabled']
+            ),
+            "message": "获取Cookie自动更新状态成功"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取账号 {cookie_id} Cookie自动更新状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+@app.post("/cookie-auto-update/enable/{cookie_id}")
+def enable_cookie_auto_update(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """启用指定账号的Cookie自动更新"""
+    try:
+        success = cookie_manager.manager.enable_cookie_auto_update(cookie_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"账号 {cookie_id} Cookie自动更新已启用"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"启用账号 {cookie_id} Cookie自动更新失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"启用账号 {cookie_id} Cookie自动更新异常: {e}")
+        raise HTTPException(status_code=500, detail=f"启用失败: {str(e)}")
+
+@app.post("/cookie-auto-update/disable/{cookie_id}")
+def disable_cookie_auto_update(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """禁用指定账号的Cookie自动更新"""
+    try:
+        success = cookie_manager.manager.disable_cookie_auto_update(cookie_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"账号 {cookie_id} Cookie自动更新已禁用"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"禁用账号 {cookie_id} Cookie自动更新失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"禁用账号 {cookie_id} Cookie自动更新异常: {e}")
+        raise HTTPException(status_code=500, detail=f"禁用失败: {str(e)}")
+
+@app.post("/cookie-auto-update/force-update/{cookie_id}")
+async def force_update_cookie(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """强制更新指定账号的Cookie"""
+    try:
+        success = await cookie_manager.manager.force_update_cookie(cookie_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"账号 {cookie_id} Cookie强制更新成功"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"账号 {cookie_id} Cookie强制更新失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"强制更新账号 {cookie_id} Cookie异常: {e}")
+        raise HTTPException(status_code=500, detail=f"强制更新失败: {str(e)}")
+
+@app.post("/cookie-auto-update/batch-update")
+async def batch_update_cookies(request: BatchUpdateRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """批量更新多个账号的Cookie"""
+    try:
+        results = await cookie_manager.manager.batch_update_cookies(request.cookie_ids)
+        
+        success_count = sum(results.values())
+        total_count = len(results)
+        
+        return {
+            "success": True,
+            "data": BatchUpdateResponse(
+                results=results,
+                success_count=success_count,
+                total_count=total_count
+            ),
+            "message": f"批量更新完成，成功: {success_count}/{total_count}"
+        }
+    except Exception as e:
+        logger.error(f"批量更新Cookie异常: {e}")
+        raise HTTPException(status_code=500, detail=f"批量更新失败: {str(e)}")
+
+@app.get("/cookie-auto-update/token/{cookie_id}")
+def get_cookie_token(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的缓存Token"""
+    try:
+        token = cookie_manager.manager.get_cookie_token(cookie_id)
+        
+        return {
+            "success": True,
+            "data": {
+                "cookie_id": cookie_id,
+                "token": token,
+                "has_token": token is not None
+            },
+            "message": "获取Token成功"
+        }
+    except Exception as e:
+        logger.error(f"获取账号 {cookie_id} Token异常: {e}")
+        raise HTTPException(status_code=500, detail=f"获取Token失败: {str(e)}")
+
+@app.get("/cookie-auto-update/config")
+def get_cookie_auto_update_config(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取Cookie自动更新配置"""
+    try:
+        from utils.config_loader import cookie_auto_update_config
+        
+        config_dict = cookie_auto_update_config.get_config_dict()
+        
+        return {
+            "success": True,
+            "data": CookieAutoUpdateConfigResponse(**config_dict),
+            "message": "获取配置成功"
+        }
+    except Exception as e:
+        logger.error(f"获取Cookie自动更新配置异常: {e}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+@app.put("/cookie-auto-update/config")
+def update_cookie_auto_update_config(config_data: dict, admin_user: Dict[str, Any] = Depends(require_admin)):
+    """更新Cookie自动更新配置（仅管理员）"""
+    try:
+        from utils.config_loader import cookie_auto_update_config
+        
+        # 更新配置
+        cookie_auto_update_config.update_config(**config_data)
+        
+        return {
+            "success": True,
+            "message": "配置更新成功"
+        }
+    except Exception as e:
+        logger.error(f"更新Cookie自动更新配置异常: {e}")
+        raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
 
 # 移除自动启动，由Start.py或手动启动
 # if __name__ == "__main__":

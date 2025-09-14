@@ -28,6 +28,7 @@ import cookie_manager as cm
 from db_manager import db_manager
 from file_log_collector import setup_file_logging
 from usage_statistics import report_user_count
+from utils.config_loader import cookie_auto_update_config
 
 
 def _start_api_server():
@@ -36,7 +37,7 @@ def _start_api_server():
 
     # 优先使用环境变量配置
     host = os.getenv('API_HOST', '0.0.0.0')  # 默认绑定所有接口
-    port = int(os.getenv('API_PORT', '8080'))  # 默认端口8080
+    port = int(os.getenv('API_PORT', '8081'))  # 默认端口8081
 
     # 如果配置文件中有特定配置，则使用配置文件
     if 'host' in api_conf:
@@ -79,6 +80,128 @@ def load_keywords_file(path: str):
     return kw_list
 
 
+async def initialize_cookie_auto_update(manager):
+    """初始化Cookie自动更新功能"""
+    try:
+        # 检查是否启用Cookie自动更新
+        if not cookie_auto_update_config.is_enabled():
+            logger.info("Cookie自动更新功能已禁用，跳过初始化")
+            return
+        
+        logger.info("开始初始化Cookie自动更新功能...")
+        
+        # 检查是否应该自动启动
+        if cookie_auto_update_config.should_auto_start():
+            logger.info("配置为自动启动，为所有启用的账号启动Cookie自动更新")
+            
+            # 为所有启用的账号启动自动更新
+            enabled_cookies = []
+            for cookie_id, cookie_value in manager.cookies.items():
+                if manager.cookie_status.get(cookie_id, True):  # 默认启用
+                    enabled_cookies.append(cookie_id)
+                    # 启用自动更新
+                    success = manager.enable_cookie_auto_update(cookie_id)
+                    if success:
+                        logger.info(f"已为账号 {cookie_id} 启用Cookie自动更新")
+                    else:
+                        logger.warning(f"为账号 {cookie_id} 启用Cookie自动更新失败")
+            
+            logger.info(f"Cookie自动更新初始化完成，已启用 {len(enabled_cookies)} 个账号的自动更新")
+        else:
+            logger.info("配置为手动启动，Cookie自动更新功能已准备就绪")
+        
+        # 启动定时任务调度器
+        await start_cookie_auto_update_scheduler(manager)
+        
+    except Exception as e:
+        logger.error(f"初始化Cookie自动更新功能失败: {e}")
+        import traceback
+        logger.error(f"详细错误信息: {traceback.format_exc()}")
+
+
+async def start_cookie_auto_update_scheduler(manager):
+    """启动Cookie自动更新定时任务调度器"""
+    try:
+        logger.info("启动Cookie自动更新定时任务调度器...")
+        
+        # 创建后台任务来管理定时刷新
+        async def cookie_auto_update_scheduler():
+            """Cookie自动更新调度器主循环"""
+            logger.info("Cookie自动更新调度器已启动")
+            
+            while True:
+                try:
+                    # 检查配置是否仍然启用
+                    if not cookie_auto_update_config.is_enabled():
+                        logger.debug("Cookie自动更新功能已禁用，调度器暂停")
+                        await asyncio.sleep(60)  # 1分钟后重新检查
+                        continue
+                    
+                    # 获取所有启用自动更新的账号
+                    auto_update_accounts = []
+                    for cookie_id in manager.cookies.keys():
+                        if manager.is_cookie_auto_update_enabled(cookie_id):
+                            auto_update_accounts.append(cookie_id)
+                    
+                    if auto_update_accounts:
+                        logger.debug(f"调度器检查到 {len(auto_update_accounts)} 个账号启用了自动更新")
+                        
+                        # 这里不需要手动触发更新，因为CookieAutoUpdater内部已经有自己的定时循环
+                        # 调度器主要用于监控和管理整体状态
+                        
+                        # 可以在这里添加一些监控逻辑，比如检查更新状态、清理过期任务等
+                        await monitor_auto_update_status(manager, auto_update_accounts)
+                    
+                    # 等待下一次检查（每5分钟检查一次）
+                    await asyncio.sleep(300)
+                    
+                except Exception as e:
+                    logger.error(f"Cookie自动更新调度器运行异常: {e}")
+                    await asyncio.sleep(60)  # 出错后等待1分钟再继续
+        
+        # 启动调度器任务
+        scheduler_task = asyncio.create_task(cookie_auto_update_scheduler())
+        logger.info("Cookie自动更新定时任务调度器启动成功")
+        
+        return scheduler_task
+        
+    except Exception as e:
+        logger.error(f"启动Cookie自动更新定时任务调度器失败: {e}")
+        raise
+
+
+async def monitor_auto_update_status(manager, auto_update_accounts):
+    """监控自动更新状态"""
+    try:
+        # 获取所有账号的自动更新状态
+        status_dict = manager.get_cookie_auto_update_status()
+        
+        # 统计状态
+        valid_tokens = 0
+        invalid_tokens = 0
+        
+        for cookie_id in auto_update_accounts:
+            if cookie_id in status_dict:
+                status = status_dict[cookie_id]
+                if status['token_valid']:
+                    valid_tokens += 1
+                else:
+                    invalid_tokens += 1
+        
+        # 记录监控信息
+        if auto_update_accounts:
+            logger.debug(f"Cookie自动更新状态监控 - 总账号: {len(auto_update_accounts)}, "
+                        f"有效Token: {valid_tokens}, 无效Token: {invalid_tokens}")
+        
+        # 如果有太多无效Token，可以考虑触发批量更新
+        if invalid_tokens > len(auto_update_accounts) * 0.5:  # 超过50%的Token无效
+            logger.warning(f"检测到大量无效Token ({invalid_tokens}/{len(auto_update_accounts)})，"
+                          f"建议检查网络连接或账号状态")
+    
+    except Exception as e:
+        logger.error(f"监控自动更新状态异常: {e}")
+
+
 async def main():
     print("开始启动主程序...")
 
@@ -94,6 +217,11 @@ async def main():
     cm.manager = cm.CookieManager(loop)
     manager = cm.manager
     print("CookieManager 创建完成")
+    
+    # 初始化Cookie自动更新功能
+    print("初始化Cookie自动更新功能...")
+    await initialize_cookie_auto_update(manager)
+    print("Cookie自动更新功能初始化完成")
 
     # 1) 从数据库加载的 Cookie 已经在 CookieManager 初始化时完成
     # 为每个启用的 Cookie 启动任务

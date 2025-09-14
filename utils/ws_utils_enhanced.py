@@ -165,88 +165,12 @@ class WebSocketClient:
         self.stats.total_connections += 1
         
         try:
-            # 创建SSL上下文，完全跳过证书验证
-            import ssl
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            
-            # 添加更多SSL配置以确保连接成功
-            try:
-                ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
-            except Exception:
-                # 如果设置失败，继续使用默认配置
-                pass
-            
-            logger.info(f"正在连接WebSocket: {self.url}")
-            
-            # 尝试多种连接方式
-            connection_attempts = [
-                # 方式1: 使用extra_headers和SSL
-                lambda: websockets.connect(
-                    self.url,
-                    extra_headers=self.headers,
-                    ssl=ssl_context,
-                    ping_interval=30,
-                    ping_timeout=15,
-                    close_timeout=15
-                ),
-                # 方式2: 使用additional_headers和SSL
-                lambda: websockets.connect(
-                    self.url,
-                    additional_headers=self.headers,
-                    ssl=ssl_context,
-                    ping_interval=30,
-                    ping_timeout=15,
-                    close_timeout=15
-                ),
-                # 方式3: 不使用headers，只用SSL
-                lambda: websockets.connect(
-                    self.url,
-                    ssl=ssl_context,
-                    ping_interval=30,
-                    ping_timeout=15,
-                    close_timeout=15
-                ),
-                # 方式4: 原始方式（兼容旧版本）
-                lambda: websockets.connect(
-                    self.url,
-                    extra_headers=self.headers,
-                    ping_interval=None,
-                    ping_timeout=None
-                )
-            ]
-            
-            last_error = None
-            for i, attempt in enumerate(connection_attempts, 1):
-                try:
-                    logger.debug(f"尝试连接方式 {i}/4")
-                    self.websocket = await attempt()
-                    logger.info(f"连接方式 {i} 成功")
-                    break
-                except Exception as e:
-                    last_error = e
-                    error_msg = str(e)
-                    logger.debug(f"连接方式 {i} 失败: {error_msg}")
-                    
-                    # 如果是参数错误，继续尝试下一种方式
-                    if ("unexpected keyword argument" in error_msg or 
-                        "extra_headers" in error_msg or 
-                        "additional_headers" in error_msg or
-                        "ssl" in error_msg.lower()):
-                        continue
-                    # 如果是SSL错误，也继续尝试
-                    elif "SSL" in error_msg or "CERTIFICATE" in error_msg:
-                        continue
-                    else:
-                        # 其他错误继续尝试其他方式
-                        continue
-            else:
-                # 所有方式都失败了
-                if last_error:
-                    raise last_error
-                else:
-                    raise Exception("所有连接方式都失败")
+            self.websocket = await websockets.connect(
+                self.url,
+                extra_headers=self.headers,
+                ping_interval=None,
+                ping_timeout=None
+            )
             
             self.stats.successful_connections += 1
             self.stats.last_connect_time = time.time()
@@ -261,15 +185,7 @@ class WebSocketClient:
         except Exception as e:
             self.stats.failed_connections += 1
             await self._set_connection_state(ConnectionState.FAILED)
-            
-            # 特殊处理SSL证书错误
-            error_msg = str(e)
-            if "CERTIFICATE_VERIFY_FAILED" in error_msg:
-                logger.warning(f"SSL证书验证失败，建议检查网络环境: {e}")
-            elif "SSL" in error_msg:
-                logger.error(f"SSL连接错误: {e}")
-            else:
-                logger.error(f"WebSocket连接失败: {e}")
+            logger.error(f"WebSocket连接失败: {e}")
             return False
             
     async def disconnect(self):
@@ -413,23 +329,10 @@ def create_enhanced_websocket_client(url: str, headers: Dict[str, str],
 async def test_websocket_connection(url: str, headers: Dict[str, str], timeout: int = 10) -> bool:
     """测试WebSocket连接"""
     try:
-        # 创建SSL上下文，跳过证书验证
-        import ssl
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        try:
-            ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
-        except Exception:
-            pass
-        
-        websocket = await asyncio.wait_for(
-            websockets.connect(url, extra_headers=headers, ssl=ssl_context), 
+        async with asyncio.wait_for(
+            websockets.connect(url, extra_headers=headers), 
             timeout=timeout
-        )
-        
-        async with websocket:
+        ) as websocket:
             await websocket.ping()
             return True
     except Exception as e:

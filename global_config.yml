@@ -9,22 +9,22 @@ APP_CONFIG:
   platform: web
 AUTO_REPLY:
   api:
-    enabled: false  # 禁用API回复，使用AI回复或关键词回复
-    host: 0.0.0.0  # 绑定所有网络接口，支持IP访问
-    port: 8080     # Web服务端口
+    enabled: false # 禁用API回复，使用AI回复或关键词回复
+    host: 0.0.0.0 # 绑定所有网络接口，支持IP访问
+    port: 8080 # Web服务端口
     timeout: 10
-    url: http://localhost:8080/xianyu/reply  # 修复URL地址
+    url: http://localhost:8080/xianyu/reply # 修复URL地址
   default_message: 亲爱的"{send_user_name}" 老板你好！所有宝贝都可以拍，秒发货的哈~不满意的话可以直接申请退款哈~
   enabled: true
   max_retry: 3
   retry_interval: 5
 ITEM_DETAIL:
   auto_fetch:
-    enabled: true  # 是否启用自动获取商品详情
-    api_url: https://selfapi.zhinianboke.com/api/getItemDetail  # 外部API地址
-    timeout: 30  # 请求超时时间（秒）
-    max_concurrent: 3  # 最大并发请求数
-    retry_delay: 0.5  # 请求间隔（秒）
+    enabled: true # 是否启用自动获取商品详情
+    api_url: https://selfapi.zhinianboke.com/api/getItemDetail # 外部API地址
+    timeout: 30 # 请求超时时间（秒）
+    max_concurrent: 3 # 最大并发请求数
+    retry_delay: 0.5 # 请求间隔（秒）
 COOKIES:
   last_update_time: ''
   value: ''
@@ -42,13 +42,15 @@ DEFAULT_HEADERS:
   sec-fetch-dest: empty
   sec-fetch-mode: cors
   sec-fetch-site: same-site
-  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+  user-agent:
+    Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
     like Gecko) Chrome/133.0.0.0 Safari/537.36
 HEARTBEAT_INTERVAL: 15
 HEARTBEAT_TIMEOUT: 30
 LOG_CONFIG:
   compression: zip
-  format: '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level>
+  format:
+    '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level>
     | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>'
   level: INFO
   retention: 7 days
@@ -58,8 +60,16 @@ MANUAL_MODE:
   timeout: 3600
   toggle_keywords: []
 MESSAGE_EXPIRE_TIME: 300000
-TOKEN_REFRESH_INTERVAL: 72000  # 从3600秒(1小时)增加到72000秒(20小时)
-TOKEN_RETRY_INTERVAL: 7200    # 从300秒(5分钟)增加到7200秒(2小时)
+TOKEN_REFRESH_INTERVAL: 72000 # 从3600秒(1小时)增加到72000秒(20小时)
+TOKEN_RETRY_INTERVAL: 7200 # 从300秒(5分钟)增加到7200秒(2小时)
+COOKIE_AUTO_UPDATE:
+  enabled: true # 是否启用Cookie自动更新功能
+  refresh_interval: 3600 # Cookie刷新间隔（秒），默认1小时
+  retry_interval: 300 # 刷新失败重试间隔（秒），默认5分钟
+  batch_size: 5 # 批量更新时的并发数量
+  timeout: 30 # 单次更新超时时间（秒）
+  auto_start: true # 系统启动时是否自动启用所有账号的自动更新
+  log_level: INFO # 自动更新日志级别
 WEBSOCKET_HEADERS:
   Accept-Encoding: gzip, deflate, br, zstd
   Accept-Language: zh-CN,zh;q=0.9
@@ -68,6 +78,114 @@ WEBSOCKET_HEADERS:
   Host: wss-goofish.dingtalk.com
   Origin: https://www.goofish.com
   Pragma: no-cache
-  User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+  User-Agent:
+    Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
     like Gecko) Chrome/133.0.0.0 Safari/537.36
 WEBSOCKET_URL: wss://wss-goofish.dingtalk.com/
+
+# 长连接增强配置
+WEBSOCKET_ENHANCED:
+  enabled: true # 是否启用增强的WebSocket客户端
+  connection:
+    timeout: 30 # 连接超时时间（秒）
+    max_reconnect_attempts: 10 # 最大重连尝试次数
+    reconnect_delay: 3 # 基础重连延迟（秒）
+    max_reconnect_delay: 300 # 最大重连延迟（秒）
+    exponential_backoff_factor: 2 # 指数退避因子
+    connection_check_interval: 60 # 连接状态检查间隔（秒）
+  heartbeat:
+    enabled: true # 是否启用心跳保活
+    interval: 15 # 心跳间隔（秒）
+    timeout: 30 # 心跳超时时间（秒）
+    max_missed_heartbeats: 3 # 最大丢失心跳次数
+    adaptive_interval: true # 是否启用自适应心跳间隔
+  statistics:
+    enabled: true # 是否启用连接统计
+    log_interval: 300 # 统计日志输出间隔（秒）
+    reset_interval: 86400 # 统计重置间隔（秒，默认24小时）
+
+# Token管理增强配置
+TOKEN_MANAGER:
+  enabled: true # 是否启用增强的Token管理器
+  refresh:
+    interval: 3600 # Token刷新间隔（秒，默认1小时）
+    retry_interval: 300 # 刷新失败重试间隔（秒，默认5分钟）
+    max_retry_attempts: 5 # 最大重试次数
+    batch_size: 3 # 批量刷新时的并发数量
+    timeout: 30 # 单次刷新超时时间（秒）
+    preemptive_refresh: true # 是否启用预防性刷新（在Token过期前刷新）
+    preemptive_threshold: 300 # 预防性刷新阈值（秒，在Token过期前多久开始刷新）
+  validation:
+    enabled: true # 是否启用Token有效性验证
+    interval: 1800 # 验证间隔（秒，默认30分钟）
+    timeout: 15 # 验证超时时间（秒）
+    retry_on_failure: true # 验证失败时是否自动重试刷新
+  session:
+    pool_size: 10 # HTTP会话池大小
+    keep_alive: true # 是否保持连接活跃
+    timeout: 30 # 会话超时时间（秒）
+    max_retries: 3 # 会话请求最大重试次数
+  logging:
+    level: INFO # Token管理器日志级别
+    detailed: false # 是否启用详细日志（包含敏感信息）
+
+# Cookie管理增强配置
+COOKIE_MANAGER_ENHANCED:
+  enabled: true # 是否启用增强的Cookie管理
+  sync:
+    auto_sync: true # 是否自动同步Cookie更新
+    sync_interval: 60 # 同步检查间隔（秒）
+    conflict_resolution: 'latest' # 冲突解决策略：'latest', 'manual', 'merge'
+  validation:
+    enabled: true # 是否启用Cookie有效性验证
+    check_interval: 1800 # 验证间隔（秒，默认30分钟）
+    auto_refresh_on_invalid: true # Cookie无效时是否自动刷新
+  backup:
+    enabled: true # 是否启用Cookie备份
+    backup_interval: 3600 # 备份间隔（秒，默认1小时）
+    max_backups: 24 # 最大备份数量
+    backup_path: './data/cookie_backups' # 备份存储路径
+  cleanup:
+    enabled: true # 是否启用过期Cookie清理
+    cleanup_interval: 86400 # 清理间隔（秒，默认24小时）
+    retention_days: 7 # Cookie保留天数
+
+# 连接监控配置
+CONNECTION_MONITOR:
+  enabled: true # 是否启用连接监控
+  metrics:
+    collect_detailed: true # 是否收集详细指标
+    retention_hours: 24 # 指标保留时间（小时）
+    export_interval: 300 # 指标导出间隔（秒）
+  alerts:
+    enabled: true # 是否启用告警
+    connection_failure_threshold: 5 # 连接失败告警阈值
+    token_refresh_failure_threshold: 3 # Token刷新失败告警阈值
+    response_time_threshold: 5000 # 响应时间告警阈值（毫秒）
+  health_check:
+    enabled: true # 是否启用健康检查
+    interval: 60 # 健康检查间隔（秒）
+    timeout: 10 # 健康检查超时时间（秒）
+    endpoints: # 健康检查端点
+      - url: 'https://passport.goofish.com/newlogin/hasLogin.do'
+        method: 'GET'
+        expected_status: 200
+        timeout: 5
+
+# 性能优化配置
+PERFORMANCE:
+  async_optimization:
+    enabled: true # 是否启用异步优化
+    max_concurrent_connections: 5 # 最大并发连接数
+    connection_pool_size: 10 # 连接池大小
+    request_timeout: 30 # 请求超时时间（秒）
+  memory_management:
+    enabled: true # 是否启用内存管理优化
+    gc_interval: 300 # 垃圾回收间隔（秒）
+    max_memory_usage: 512 # 最大内存使用量（MB）
+    cleanup_threshold: 0.8 # 内存清理阈值（比例）
+  caching:
+    enabled: true # 是否启用缓存
+    token_cache_ttl: 3600 # Token缓存TTL（秒）
+    response_cache_ttl: 300 # 响应缓存TTL（秒）
+    max_cache_size: 1000 # 最大缓存条目数

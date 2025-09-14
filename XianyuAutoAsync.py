@@ -20,6 +20,10 @@ import sys
 import aiohttp
 from collections import defaultdict
 
+# 导入增强的WebSocket工具和Token管理器
+from utils.ws_utils import WebSocketClient, ConnectionState
+from utils.token_manager import XianyuTokenManager
+
 
 class AutoReplyPauseManager:
     """自动回复暂停管理器"""
@@ -254,8 +258,56 @@ class XianyuLive:
         self.total_retry_attempts = 0  # 总重试次数
         self.max_total_retries = 100  # 最大总重试次数
 
+        # 初始化增强的WebSocket客户端
+        self.ws_client = None
+        self._init_enhanced_websocket_client()
+
+        # 初始化Token管理器
+        self.token_manager = None
+        self._init_token_manager()
+
         # 注册实例到类级别字典（用于API调用）
         self._register_instance()
+
+    def _init_enhanced_websocket_client(self):
+        """初始化增强的WebSocket客户端"""
+        try:
+            # 创建消息处理回调函数
+            def on_message_callback(message_data):
+                logger.debug(f"【{self.cookie_id}】收到WebSocket消息: {message_data}")
+            
+            # 准备headers
+            headers = {
+                "Cookie": self.cookies_str,
+                "Host": "wss-goofish.dingtalk.com",
+                "Connection": "Upgrade",
+                "Pragma": "no-cache",
+                "Cache-Control": "no-cache",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+                "Origin": "https://www.goofish.com",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+            }
+            
+            self.ws_client = WebSocketClient(
+                url=self.base_url,
+                headers=headers,
+                on_message=on_message_callback,
+                heartbeat_interval=getattr(self, 'heartbeat_interval', 30),
+                heartbeat_timeout=10
+            )
+            logger.debug(f"【{self.cookie_id}】增强WebSocket客户端初始化完成")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】初始化增强WebSocket客户端失败: {self._safe_str(e)}")
+            self.ws_client = None
+
+    def _init_token_manager(self):
+        """初始化Token管理器"""
+        try:
+            self.token_manager = XianyuTokenManager()
+            logger.debug(f"【{self.cookie_id}】Token管理器初始化完成")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】初始化Token管理器失败: {self._safe_str(e)}")
 
     def _register_instance(self):
         """注册当前实例到类级别字典"""
@@ -756,9 +808,43 @@ class XianyuLive:
 
 
     async def refresh_token(self):
-        """刷新token"""
+        """刷新token - 使用增强的Token管理器"""
         try:
             logger.info(f"【{self.cookie_id}】开始刷新token...")
+            
+            # 优先使用Token管理器
+            if self.token_manager:
+                new_token = await self.token_manager.refresh_token()
+                if new_token:
+                    self.current_token = new_token
+                    self.last_token_refresh_time = time.time()
+                    
+                    # 同步更新cookies
+                    updated_cookies = self.token_manager.get_cookies_str()
+                    if updated_cookies != self.cookies_str:
+                        self.cookies_str = updated_cookies
+                        self.cookies = trans_cookies(updated_cookies)
+                        await self.update_config_cookies()
+                        logger.debug(f"【{self.cookie_id}】已同步Token管理器更新的cookies")
+                    
+                    logger.info(f"【{self.cookie_id}】Token刷新成功（通过Token管理器）")
+                    return new_token
+                else:
+                    logger.warning(f"【{self.cookie_id}】Token管理器刷新失败，使用原始方法")
+            
+            # 如果Token管理器失败，使用原始方法
+            return await self._refresh_token_original()
+            
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】Token刷新异常: {self._safe_str(e)}")
+            # 发送Token刷新异常通知
+            await self.send_token_refresh_notification(f"Token刷新异常: {str(e)}", "token_refresh_exception")
+            return None
+
+    async def _refresh_token_original(self):
+        """原始Token刷新方法（作为备用）"""
+        try:
+            logger.info(f"【{self.cookie_id}】使用原始方法刷新token...")
             # 生成更精确的时间戳
             timestamp = str(int(time.time() * 1000))
 
@@ -849,7 +935,7 @@ class XianyuLive:
                                 self.current_token = new_token
                                 self.last_token_refresh_time = time.time()
 
-                                logger.info(f"【{self.cookie_id}】Token刷新成功")
+                                logger.info(f"【{self.cookie_id}】Token刷新成功（原始方法）")
                                 return new_token
 
                     logger.error(f"【{self.cookie_id}】Token刷新失败: {res_json}")
@@ -862,13 +948,9 @@ class XianyuLive:
                     return None
 
         except Exception as e:
-            logger.error(f"Token刷新异常: {self._safe_str(e)}")
-
+            logger.error(f"原始Token刷新异常: {self._safe_str(e)}")
             # 清空当前token，确保下次重试时重新获取
             self.current_token = None
-
-            # 发送Token刷新异常通知
-            await self.send_token_refresh_notification(f"Token刷新异常: {str(e)}", "token_refresh_exception")
             return None
 
     async def update_config_cookies(self):
@@ -4327,43 +4409,115 @@ class XianyuLive:
                 raise
 
     async def _create_websocket_connection(self, headers):
-        """创建WebSocket连接，兼容不同版本的websockets库"""
+        """创建WebSocket连接，优先使用增强的WebSocket客户端"""
+        try:
+            # 优先使用增强的WebSocket客户端
+            if self.ws_client:
+                logger.debug(f"【{self.cookie_id}】使用增强WebSocket客户端建立连接")
+                # 检查是否有update_headers方法
+                if hasattr(self.ws_client, 'update_headers'):
+                    self.ws_client.update_headers(headers)
+                return await self.ws_client.connect()
+            else:
+                logger.warning(f"【{self.cookie_id}】增强WebSocket客户端不可用，使用原始方法")
+                return await self._create_websocket_connection_original(headers)
+        except Exception as e:
+            logger.warning(f"【{self.cookie_id}】增强WebSocket客户端连接失败，使用原始方法: {self._safe_str(e)}")
+            return await self._create_websocket_connection_original(headers)
+
+    async def _create_websocket_connection_original(self, headers):
+        """原始WebSocket连接方法（作为备用）"""
         import websockets
+        import ssl
 
         # 获取websockets版本用于调试
         websockets_version = getattr(websockets, '__version__', '未知')
         logger.debug(f"websockets库版本: {websockets_version}")
 
+        # 创建SSL上下文，完全跳过证书验证
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # 添加更多SSL配置以确保连接成功
+        ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
+        
+        logger.info(f"【{self.cookie_id}】使用SSL上下文连接WebSocket: {self.base_url}")
+
         try:
             # 尝试使用extra_headers参数
-            return websockets.connect(
+            logger.debug(f"【{self.cookie_id}】尝试使用extra_headers参数连接")
+            return await websockets.connect(
                 self.base_url,
-                extra_headers=headers
+                extra_headers=headers,
+                ssl=ssl_context,
+                ping_interval=30,
+                ping_timeout=15,
+                close_timeout=15,
+                max_size=2**20,  # 1MB
+                max_queue=32
             )
         except Exception as e:
             # 捕获所有异常类型，不仅仅是TypeError
             error_msg = self._safe_str(e)
-            logger.debug(f"extra_headers参数失败: {error_msg}")
+            logger.warning(f"【{self.cookie_id}】extra_headers参数失败: {error_msg}")
 
             if "extra_headers" in error_msg or "unexpected keyword argument" in error_msg:
-                logger.warning("websockets库不支持extra_headers参数，尝试additional_headers")
+                logger.info(f"【{self.cookie_id}】websockets库不支持extra_headers参数，尝试additional_headers")
                 # 使用additional_headers参数（较新版本）
                 try:
-                    return websockets.connect(
+                    return await websockets.connect(
                         self.base_url,
-                        additional_headers=headers
+                        additional_headers=headers,
+                        ssl=ssl_context,
+                        ping_interval=30,
+                        ping_timeout=15,
+                        close_timeout=15,
+                        max_size=2**20,
+                        max_queue=32
                     )
                 except Exception as e2:
                     error_msg2 = self._safe_str(e2)
-                    logger.debug(f"additional_headers参数失败: {error_msg2}")
+                    logger.warning(f"【{self.cookie_id}】additional_headers参数失败: {error_msg2}")
 
                     if "additional_headers" in error_msg2 or "unexpected keyword argument" in error_msg2:
                         # 如果都不支持，则不传递headers
-                        logger.warning("websockets库不支持headers参数，使用基础连接模式")
-                        return websockets.connect(self.base_url)
+                        logger.info(f"【{self.cookie_id}】websockets库不支持headers参数，使用基础连接模式")
+                        try:
+                            return await websockets.connect(
+                                self.base_url,
+                                ssl=ssl_context,
+                                ping_interval=30,
+                                ping_timeout=15,
+                                close_timeout=15,
+                                max_size=2**20,
+                                max_queue=32
+                            )
+                        except Exception as e3:
+                            logger.error(f"【{self.cookie_id}】基础连接模式也失败: {self._safe_str(e3)}")
+                            # 如果SSL连接失败，尝试不使用SSL（仅用于测试）
+                            if "SSL" in str(e3) or "CERTIFICATE" in str(e3):
+                                logger.warning(f"【{self.cookie_id}】SSL连接失败，尝试不安全连接（仅用于测试）")
+                                try:
+                                    # 将wss://改为ws://进行测试
+                                    test_url = self.base_url.replace('wss://', 'ws://')
+                                    return await websockets.connect(
+                                        test_url,
+                                        ping_interval=30,
+                                        ping_timeout=15,
+                                        close_timeout=15
+                                    )
+                                except Exception as e4:
+                                    logger.error(f"【{self.cookie_id}】不安全连接也失败: {self._safe_str(e4)}")
+                                    raise e3
+                            else:
+                                raise e3
                     else:
                         raise e2
             else:
+                # 如果不是headers相关错误，检查是否是SSL错误
+                if "SSL" in error_msg or "CERTIFICATE" in error_msg:
+                    logger.error(f"【{self.cookie_id}】SSL证书验证失败，请检查网络环境: {error_msg}")
                 raise e
 
     async def _handle_websocket_connection(self, websocket, toid, item_id, text):
@@ -4952,56 +5106,61 @@ class XianyuLive:
                     logger.debug(f"【{self.cookie_id}】WebSocket headers: {headers}")
 
                     # 兼容不同版本的websockets库
-                    async with await self._create_websocket_connection(headers) as websocket:
-                        logger.info(f"【{self.cookie_id}】WebSocket连接建立成功！")
-                        self.ws = websocket
+                    websocket_conn = await self._create_websocket_connection(headers)
+                    if websocket_conn:
+                        async with websocket_conn as websocket:
+                            logger.info(f"【{self.cookie_id}】WebSocket连接建立成功！")
+                            self.ws = websocket
 
-                        # 更新连接状态
-                        self.connection_failures = 0
-                        self.last_successful_connection = time.time()
+                            # 更新连接状态
+                            self.connection_failures = 0
+                            self.last_successful_connection = time.time()
 
-                        logger.info(f"【{self.cookie_id}】开始初始化WebSocket连接...")
-                        await self.init(websocket)
-                        logger.info(f"【{self.cookie_id}】WebSocket初始化完成！")
+                            logger.info(f"【{self.cookie_id}】开始初始化WebSocket连接...")
+                            await self.init(websocket)
+                            logger.info(f"【{self.cookie_id}】WebSocket初始化完成！")
 
-                        # 启动心跳任务
-                        logger.info(f"【{self.cookie_id}】启动心跳任务...")
-                        self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(websocket))
+                            # 启动心跳任务
+                            logger.info(f"【{self.cookie_id}】启动心跳任务...")
+                            self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(websocket))
 
-                        # 启动token刷新任务
-                        logger.info(f"【{self.cookie_id}】启动token刷新任务...")
-                        self.token_refresh_task = asyncio.create_task(self.token_refresh_loop())
+                            # 启动token刷新任务
+                            logger.info(f"【{self.cookie_id}】启动token刷新任务...")
+                            self.token_refresh_task = asyncio.create_task(self.token_refresh_loop())
 
-                        # 启动暂停记录清理任务
-                        if not self.cleanup_task:
-                            logger.info(f"【{self.cookie_id}】启动暂停记录清理任务...")
-                            self.cleanup_task = asyncio.create_task(self.pause_cleanup_loop())
+                            # 启动暂停记录清理任务
+                            if not self.cleanup_task:
+                                logger.info(f"【{self.cookie_id}】启动暂停记录清理任务...")
+                                self.cleanup_task = asyncio.create_task(self.pause_cleanup_loop())
 
-                        # 启动Cookie刷新任务
-                        if not self.cookie_refresh_task:
-                            logger.info(f"【{self.cookie_id}】启动Cookie刷新任务...")
-                            self.cookie_refresh_task = asyncio.create_task(self.cookie_refresh_loop())
+                            # 启动Cookie刷新任务
+                            if not self.cookie_refresh_task:
+                                logger.info(f"【{self.cookie_id}】启动Cookie刷新任务...")
+                                self.cookie_refresh_task = asyncio.create_task(self.cookie_refresh_loop())
 
-                        logger.info(f"【{self.cookie_id}】开始监听WebSocket消息...")
-                        logger.info(f"【{self.cookie_id}】WebSocket连接状态正常，等待服务器消息...")
-                        logger.info(f"【{self.cookie_id}】准备进入消息循环...")
+                            logger.info(f"【{self.cookie_id}】开始监听WebSocket消息...")
+                            logger.info(f"【{self.cookie_id}】WebSocket连接状态正常，等待服务器消息...")
+                            logger.info(f"【{self.cookie_id}】准备进入消息循环...")
 
-                        async for message in websocket:
-                            logger.info(f"【{self.cookie_id}】收到WebSocket消息: {len(message) if message else 0} 字节")
-                            try:
-                                message_data = json.loads(message)
+                            async for message in websocket:
+                                logger.info(f"【{self.cookie_id}】收到WebSocket消息: {len(message) if message else 0} 字节")
+                                try:
+                                    message_data = json.loads(message)
 
-                                # 处理心跳响应
-                                if await self.handle_heartbeat_response(message_data):
+                                    # 处理心跳响应
+                                    if await self.handle_heartbeat_response(message_data):
+                                        continue
+
+                                    # 处理其他消息
+                                    # 使用异步任务处理消息，防止阻塞后续消息接收
+                                    asyncio.create_task(self.handle_message(message_data, websocket))
+
+                                except Exception as e:
+                                    logger.error(f"处理消息出错: {self._safe_str(e)}")
                                     continue
-
-                                # 处理其他消息
-                                # 使用异步任务处理消息，防止阻塞后续消息接收
-                                asyncio.create_task(self.handle_message(message_data, websocket))
-
-                            except Exception as e:
-                                logger.error(f"处理消息出错: {self._safe_str(e)}")
-                                continue
+                    else:
+                        logger.error(f"【{self.cookie_id}】WebSocket连接创建失败")
+                        break
 
                 except Exception as e:
                     error_msg = self._safe_str(e)
@@ -5066,6 +5225,28 @@ class XianyuLive:
             if self.current_token:
                 logger.info(f"【{self.cookie_id}】程序退出，清空当前token")
                 self.current_token = None
+
+            # 清理增强的WebSocket客户端
+            if self.ws_client:
+                try:
+                    if hasattr(self.ws_client, 'close'):
+                        await self.ws_client.close()
+                        logger.debug(f"【{self.cookie_id}】增强WebSocket客户端已关闭")
+                    elif hasattr(self.ws_client, 'disconnect'):
+                        await self.ws_client.disconnect()
+                        logger.debug(f"【{self.cookie_id}】增强WebSocket客户端已断开")
+                    else:
+                        logger.debug(f"【{self.cookie_id}】WebSocket客户端无需手动关闭")
+                except Exception as e:
+                    logger.warning(f"【{self.cookie_id}】关闭增强WebSocket客户端失败: {self._safe_str(e)}")
+
+            # 清理Token管理器
+            if self.token_manager:
+                try:
+                    await self.token_manager.stop()
+                    logger.debug(f"【{self.cookie_id}】Token管理器已停止")
+                except Exception as e:
+                    logger.warning(f"【{self.cookie_id}】停止Token管理器失败: {self._safe_str(e)}")
 
             # 清理所有任务
             if self.heartbeat_task:
