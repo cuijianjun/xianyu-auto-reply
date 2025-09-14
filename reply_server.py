@@ -1172,14 +1172,14 @@ def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)
         
         user_cookies = db_manager.get_all_cookies(user_id)
         print(f"🔍 [DEBUG] 数据库查询结果: {len(user_cookies)} 个Cookie")
-        print(f"🔍 [DEBUG] Cookie键列表: {list(user_cookies.keys())}")
+        print(f"🔍 [DEBUG] Cookie数据类型: {type(user_cookies)}")
         
         # 如果没有找到用户的cookies，尝试查询所有cookies
         if len(user_cookies) == 0:
             print(f"🔍 [DEBUG] 用户{user_id}没有cookies，查询所有cookies...")
             all_cookies = db_manager.get_all_cookies()
             print(f"🔍 [DEBUG] 所有cookies: {len(all_cookies)} 个")
-            print(f"🔍 [DEBUG] 所有cookies键列表: {list(all_cookies.keys())}")
+            print(f"🔍 [DEBUG] 所有cookies数据类型: {type(all_cookies)}")
             
             # 直接SQL查询检查
             cursor = db_manager.conn.cursor()
@@ -1187,10 +1187,29 @@ def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)
             raw_cookies = cursor.fetchall()
             print(f"🔍 [DEBUG] 原始SQL查询结果: {raw_cookies}")
         
-        logger.info(f"从数据库获取到{len(user_cookies)}个Cookie: {list(user_cookies.keys())}")
+        # 处理不同的数据格式
+        cookie_items = []
+        if isinstance(user_cookies, list):
+            # 新格式：列表包含字典 [{'id': 'xxx', 'cookie': 'xxx', 'user_id': xxx}, ...]
+            print(f"🔍 [DEBUG] 处理列表格式的cookies数据")
+            for cookie_info in user_cookies:
+                if isinstance(cookie_info, dict) and 'id' in cookie_info:
+                    cookie_id = cookie_info['id']
+                    cookie_value = cookie_info.get('cookie', '') or cookie_info.get('value', '')
+                    cookie_items.append((cookie_id, cookie_value))
+        elif isinstance(user_cookies, dict):
+            # 旧格式：字典格式 {'id': 'cookie_value', ...}
+            print(f"🔍 [DEBUG] 处理字典格式的cookies数据")
+            cookie_items = list(user_cookies.items())
+        else:
+            print(f"🔍 [DEBUG] 未知的cookies数据格式: {type(user_cookies)}")
+            cookie_items = []
+        
+        print(f"🔍 [DEBUG] 处理后的cookie项目数: {len(cookie_items)}")
+        logger.info(f"从数据库获取到{len(cookie_items)}个Cookie")
 
         result = []
-        for cookie_id, cookie_value in user_cookies.items():
+        for cookie_id, cookie_value in cookie_items:
             print(f"🔍 [DEBUG] 处理Cookie: {cookie_id}")
             
             # 如果cookie_manager.manager存在，使用它获取状态，否则默认为启用

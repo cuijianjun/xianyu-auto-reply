@@ -1,4 +1,7 @@
 __pycache__
+.codebuddy
+.pytest_cache
+.venv
 *node_modules/*
 *.so
 .Python
