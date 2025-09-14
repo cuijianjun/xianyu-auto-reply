@@ -9974,7 +9974,7 @@ function createItemCard(item) {
     col.className = 'col-md-6 col-lg-4 col-xl-3 mb-4';
 
     // 修复字段映射：使用main_image而不是image_url
-    const imageUrl = item.main_image || item.image_url || 'https://via.placeholder.com/200x200?text=图片加载失败';
+    const imageUrl = item.main_image || item.image_url || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOi9veWksei0pTwvdGV4dD48L3N2Zz4=';
     const wantCount = item.want_count || 0;
 
     console.log('处理后的数据:', {
@@ -9989,7 +9989,7 @@ function createItemCard(item) {
     col.innerHTML = `
         <div class="card item-card h-100">
             <img src="${escapeHtml(imageUrl)}" class="item-image" alt="${escapeHtml(item.title)}"
-                 onerror="this.src='https://via.placeholder.com/200x200?text=图片加载失败'"
+                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOi9veWksei0pTwvdGV4dD48L3N2Zz4='"
                  style="width: 100%; height: 200px; object-fit: cover; border-radius: 10px;">
             <div class="card-body d-flex flex-column">
                 <h6 class="card-title" title="${escapeHtml(item.title)}">
@@ -10140,7 +10140,8 @@ function exportSearchResults() {
  */
 async function loadProjectUsers() {
     try {
-        const response = await fetch('https://xianyu.zhinianblog.cn/?action=stats');
+        // 使用本地API替代外部API调用
+        const response = await fetch(`${apiBase}/api/stats`);
         const result = await response.json();
 
         if (result.error) {
@@ -10183,7 +10184,8 @@ function startProjectUsersRefresh() {
  */
 async function showProjectStats() {
     try {
-        const response = await fetch('https://xianyu.zhinianblog.cn/?action=stats');
+        // 使用本地API替代外部API调用
+        const response = await fetch(`${apiBase}/api/stats`);
         const data = await response.json();
 
         if (data.error) {
@@ -10321,7 +10323,8 @@ async function loadSystemVersion() {
         document.getElementById('versionNumber').textContent = currentSystemVersion;
 
         // 获取远程版本并检查更新
-        const response = await fetch('https://xianyu.zhinianblog.cn/index.php?action=getVersion');
+        // 使用本地API替代外部API调用
+        const response = await fetch(`${apiBase}/api/version`);
         const result = await response.json();
 
         if (result.error) {
@@ -10376,7 +10379,8 @@ function showUpdateAvailable(newVersion) {
  */
 async function getUpdateInfo() {
     try {
-        const response = await fetch('https://xianyu.zhinianblog.cn/index.php?action=getUpdateInfo');
+        // 使用本地API替代外部API调用
+        const response = await fetch(`${apiBase}/api/update-info`);
         const result = await response.json();
 
         if (result.error) {

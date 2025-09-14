@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, F
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
@@ -298,6 +299,15 @@ app = FastAPI(
     description="闲鱼自动回复系统API",
     docs_url="/docs",
     redoc_url="/redoc"
+)
+
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 在生产环境中应该设置具体的域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 初始化文件日志收集器
@@ -4761,6 +4771,101 @@ def update_cookie_auto_update_config(config_data: dict, admin_user: Dict[str, An
     except Exception as e:
         logger.error(f"更新Cookie自动更新配置异常: {e}")
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+
+
+# ================================
+# 本地API端点 - 替代外部API调用
+# ================================
+
+@app.get('/api/stats')
+def get_local_stats():
+    """获取本地统计信息"""
+    try:
+        # 获取本地用户统计
+        cookies = db_manager.get_all_cookies()
+        total_users = len(cookies)
+        
+        # 获取关键词统计
+        total_keywords = 0
+        for cookie in cookies:
+            keywords = db_manager.get_keywords(cookie.get('id', ''))
+            total_keywords += len(keywords)
+        
+        return {
+            "total_users": total_users,
+            "total_keywords": total_keywords,
+            "active_accounts": len([c for c in cookies if c.get('enabled', False)]),
+            "system_status": "running"
+        }
+    except Exception as e:
+        logger.error(f"获取本地统计失败: {e}")
+        return {
+            "error": f"获取统计失败: {str(e)}",
+            "total_users": 0,
+            "total_keywords": 0,
+            "active_accounts": 0,
+            "system_status": "error"
+        }
+
+@app.get('/api/version')
+def get_local_version():
+    """获取本地版本信息"""
+    try:
+        return {
+            "version": "2.2.0",
+            "build_date": "2025-09-14",
+            "description": "闲鱼自动回复系统",
+            "features": [
+                "自动回复消息",
+                "Cookie自动更新",
+                "WebSocket连接",
+                "用户管理",
+                "关键词管理"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"获取版本信息失败: {e}")
+        return {
+            "error": f"获取版本失败: {str(e)}",
+            "version": "unknown"
+        }
+
+@app.get('/api/update-info')
+def get_local_update_info():
+    """获取本地更新信息"""
+    try:
+        return {
+            "has_update": False,
+            "latest_version": "2.2.0",
+            "current_version": "2.2.0",
+            "update_notes": "系统运行正常，无需更新",
+            "download_url": "",
+            "update_required": False
+        }
+    except Exception as e:
+        logger.error(f"获取更新信息失败: {e}")
+        return {
+            "error": f"获取更新信息失败: {str(e)}",
+            "has_update": False
+        }
+
+@app.post('/api/usage')
+def post_local_usage(request: dict):
+    """接收本地使用情况数据"""
+    try:
+        # 记录使用情况（可以根据需要存储到数据库或日志）
+        logger.info(f"收到使用情况数据: {request}")
+        return {
+            "success": True,
+            "message": "使用情况数据已接收",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"处理使用情况数据失败: {e}")
+        return {
+            "success": False,
+            "error": f"处理失败: {str(e)}"
+        }
 
 # 移除自动启动，由Start.py或手动启动
 # if __name__ == "__main__":
