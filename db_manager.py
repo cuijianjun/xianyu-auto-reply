@@ -444,15 +444,29 @@ class DatabaseManager:
                 except Exception as schema_error:
                     # 如果检查表结构失败，尝试使用默认的 cookie 列名
                     logger.warning(f"检查表结构失败，使用默认列名: {schema_error}")
-                    if user_id is not None:
-                        self._execute_sql(cursor, "SELECT id, cookie FROM cookies WHERE user_id = ?", (user_id,))
-                    else:
-                        self._execute_sql(cursor, "SELECT id, cookie FROM cookies")
-                    return {row[0]: row[1] for row in cursor.fetchall()}
+                    try:
+                        if user_id is not None:
+                            self._execute_sql(cursor, "SELECT id, cookie, user_id FROM cookies WHERE user_id = ?", (user_id,))
+                        else:
+                            self._execute_sql(cursor, "SELECT id, cookie, user_id FROM cookies")
+                        
+                        # 保持一致的列表格式返回
+                        results = []
+                        for row in cursor.fetchall():
+                            cookie_dict = {
+                                'id': row[0],
+                                'cookie': row[1],
+                                'user_id': row[2] if len(row) > 2 else user_id
+                            }
+                            results.append(cookie_dict)
+                        return results
+                    except Exception as fallback_error:
+                        logger.error(f"备用查询也失败: {fallback_error}")
+                        return []
                     
             except Exception as e:
                 logger.error(f"获取所有Cookie失败: {e}")
-                return [] if isinstance(e, Exception) and "column" in str(e).lower() else {}
+                return []  # 始终返回列表格式
 
     def delete_cookie(self, cookie_id):
         """删除Cookie"""

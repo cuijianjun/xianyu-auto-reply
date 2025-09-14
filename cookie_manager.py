@@ -225,12 +225,12 @@ class CookieManager:
                     if isinstance(cookie_item, dict) and 'id' in cookie_item and 'cookie' in cookie_item:
                         self.cookies[cookie_item['id']] = cookie_item['cookie']
                     else:
-                        logger.warning(f"跳过无效的Cookie项: {cookie_item}")
+                        self.logger.warning(f"跳过无效的Cookie项: {cookie_item}")
             elif isinstance(cookies_data, dict):
                 # 旧格式：字典格式 {'id': 'cookie_value', ...}
                 self.cookies = cookies_data
             else:
-                logger.error(f"未知的Cookie数据格式: {type(cookies_data)}")
+                self.logger.error(f"未知的Cookie数据格式: {type(cookies_data)}")
                 self.cookies = {}
             
             # 加载所有关键字 - 为每个cookie单独加载
@@ -248,9 +248,9 @@ class CookieManager:
                 # 设置默认auto_confirm设置为False
                 self.auto_confirm_settings[cookie_id] = False
             
-            logger.info(f"从数据库加载了 {len(self.cookies)} 个Cookie、{len(self.keywords)} 组关键字、{len(self.cookie_status)} 个状态记录和 {len(self.auto_confirm_settings)} 个自动确认设置")
+            self.logger.info(f"从数据库加载了 {len(self.cookies)} 个Cookie、{len(self.keywords)} 组关键字、{len(self.cookie_status)} 个状态记录和 {len(self.auto_confirm_settings)} 个自动确认设置")
         except Exception as e:
-            logger.error(f"从数据库加载数据失败: {e}")
+            self.logger.error(f"从数据库加载数据失败: {e}")
             # 确保初始化基本数据结构
             self.cookies = {}
             self.keywords = {}
