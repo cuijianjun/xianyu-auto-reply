@@ -1104,6 +1104,46 @@ def list_cookies(current_user: Dict[str, Any] = Depends(get_current_user)):
     return list(user_cookies.keys())
 
 
+@app.get("/debug/db-status")
+def debug_db_status():
+    """调试数据库状态 - 临时接口"""
+    try:
+        from db_manager import db_manager
+        
+        result = {
+            "db_manager": str(db_manager),
+            "db_connection": str(db_manager.conn) if db_manager.conn else "None",
+            "db_path": db_manager.db_path,
+            "db_file_exists": os.path.exists(db_manager.db_path) if hasattr(db_manager, 'db_path') else "Unknown"
+        }
+        
+        # 检查cookies表
+        if db_manager.conn:
+            cursor = db_manager.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM cookies")
+            cookie_count = cursor.fetchone()[0]
+            result["cookie_count"] = cookie_count
+            
+            if cookie_count > 0:
+                cursor.execute("SELECT id, user_id, LENGTH(cookie) as cookie_length FROM cookies LIMIT 3")
+                cookies = cursor.fetchall()
+                result["sample_cookies"] = [{"id": row[0], "user_id": row[1], "cookie_length": row[2]} for row in cookies]
+            
+            # 检查users表
+            cursor.execute("SELECT COUNT(*) FROM users")
+            user_count = cursor.fetchone()[0]
+            result["user_count"] = user_count
+            
+            if user_count > 0:
+                cursor.execute("SELECT id, username FROM users LIMIT 3")
+                users = cursor.fetchall()
+                result["sample_users"] = [{"id": row[0], "username": row[1]} for row in users]
+        
+        return result
+        
+    except Exception as e:
+        return {"error": str(e), "traceback": str(traceback.format_exc())}
+
 @app.get("/cookies/details")
 def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)):
     """获取所有Cookie的详细信息（包括值和状态）"""
@@ -1124,9 +1164,28 @@ def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)
         print(f"🔍 [DEBUG] 数据库管理器: {db_manager}")
         print(f"🔍 [DEBUG] 数据库连接: {db_manager.conn}")
         
+        # 强制重新初始化数据库连接
+        if not db_manager.conn:
+            print(f"🔍 [DEBUG] 数据库连接为空，重新初始化...")
+            db_manager.init_db()
+            print(f"🔍 [DEBUG] 重新初始化后的连接: {db_manager.conn}")
+        
         user_cookies = db_manager.get_all_cookies(user_id)
         print(f"🔍 [DEBUG] 数据库查询结果: {len(user_cookies)} 个Cookie")
         print(f"🔍 [DEBUG] Cookie键列表: {list(user_cookies.keys())}")
+        
+        # 如果没有找到用户的cookies，尝试查询所有cookies
+        if len(user_cookies) == 0:
+            print(f"🔍 [DEBUG] 用户{user_id}没有cookies，查询所有cookies...")
+            all_cookies = db_manager.get_all_cookies()
+            print(f"🔍 [DEBUG] 所有cookies: {len(all_cookies)} 个")
+            print(f"🔍 [DEBUG] 所有cookies键列表: {list(all_cookies.keys())}")
+            
+            # 直接SQL查询检查
+            cursor = db_manager.conn.cursor()
+            cursor.execute("SELECT id, user_id, LENGTH(cookie) FROM cookies")
+            raw_cookies = cursor.fetchall()
+            print(f"🔍 [DEBUG] 原始SQL查询结果: {raw_cookies}")
         
         logger.info(f"从数据库获取到{len(user_cookies)}个Cookie: {list(user_cookies.keys())}")
 
