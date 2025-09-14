@@ -1523,14 +1523,29 @@ class DatabaseManager:
                     self.init_db()
                 cursor = self.conn.cursor()
                 
-                self._execute_sql(cursor, '''
-                    SELECT mn.id, mn.channel_id, mn.enabled, mn.created_at, mn.updated_at,
-                           nc.name as channel_name, nc.type as channel_type
-                    FROM message_notifications mn
-                    LEFT JOIN notification_channels nc ON mn.channel_id = nc.id
-                    WHERE mn.cookie_id = ?
-                    ORDER BY mn.created_at DESC
-                ''', (cookie_id,))
+                # 检查表结构，确保兼容性
+                try:
+                    cursor.execute("PRAGMA table_info(message_notifications)")
+                    columns = cursor.fetchall()
+                    column_names = [col[1] for col in columns]
+                    
+                    # 检查是否有channel_id列
+                    if 'channel_id' in column_names:
+                        self._execute_sql(cursor, '''
+                            SELECT mn.id, mn.channel_id, mn.enabled, mn.created_at, mn.updated_at,
+                                   nc.name as channel_name, nc.type as channel_type
+                            FROM message_notifications mn
+                            LEFT JOIN notification_channels nc ON mn.channel_id = nc.id
+                            WHERE mn.cookie_id = ?
+                            ORDER BY mn.created_at DESC
+                        ''', (cookie_id,))
+                    else:
+                        # 旧版本表结构，返回空结果避免错误
+                        logger.warning(f"message_notifications表缺少channel_id列，跳过查询")
+                        return []
+                except Exception as table_error:
+                    logger.warning(f"检查表结构失败，跳过查询: {table_error}")
+                    return []
                 
                 notifications = []
                 for row in cursor.fetchall():

@@ -272,31 +272,9 @@ class XianyuLive:
     def _init_enhanced_websocket_client(self):
         """初始化增强的WebSocket客户端"""
         try:
-            # 创建消息处理回调函数
-            def on_message_callback(message_data):
-                logger.debug(f"【{self.cookie_id}】收到WebSocket消息: {message_data}")
-            
-            # 准备headers
-            headers = {
-                "Cookie": self.cookies_str,
-                "Host": "wss-goofish.dingtalk.com",
-                "Connection": "Upgrade",
-                "Pragma": "no-cache",
-                "Cache-Control": "no-cache",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                "Origin": "https://www.goofish.com",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-            }
-            
-            self.ws_client = WebSocketClient(
-                url=self.base_url,
-                headers=headers,
-                on_message=on_message_callback,
-                heartbeat_interval=getattr(self, 'heartbeat_interval', 30),
-                heartbeat_timeout=10
-            )
-            logger.debug(f"【{self.cookie_id}】增强WebSocket客户端初始化完成")
+            # 暂时禁用增强WebSocket客户端，避免初始化问题
+            logger.debug(f"【{self.cookie_id}】暂时禁用增强WebSocket客户端，使用原始连接方法")
+            self.ws_client = None
         except Exception as e:
             logger.error(f"【{self.cookie_id}】初始化增强WebSocket客户端失败: {self._safe_str(e)}")
             self.ws_client = None
@@ -947,6 +925,18 @@ class XianyuLive:
                                 logger.info(f"【{self.cookie_id}】Token刷新成功（原始方法）")
                                 return new_token
 
+                    # 检查是否是系统过载错误
+                    if isinstance(res_json, dict) and 'ret' in res_json:
+                        ret_list = res_json.get('ret', [])
+                        if any('RGV587_ERROR' in str(ret) for ret in ret_list):
+                            logger.warning(f"【{self.cookie_id}】系统过载，稍后重试: {res_json}")
+                            # 系统过载时等待更长时间再重试
+                            await asyncio.sleep(60)
+                            return None
+                        elif any('FAIL_SYS_USER_VALIDATE' in str(ret) for ret in ret_list):
+                            logger.warning(f"【{self.cookie_id}】用户验证失败，可能需要人工处理: {res_json}")
+                            return None
+                    
                     logger.error(f"【{self.cookie_id}】Token刷新失败: {res_json}")
 
                     # 清空当前token，确保下次重试时重新获取
@@ -4453,21 +4443,14 @@ class XianyuLive:
                 raise
 
     async def _create_websocket_connection(self, headers):
-        """创建WebSocket连接，优先使用增强的WebSocket客户端"""
+        """创建WebSocket连接，直接使用原始方法"""
         try:
-            # 优先使用增强的WebSocket客户端
-            if self.ws_client:
-                logger.debug(f"【{self.cookie_id}】使用增强WebSocket客户端建立连接")
-                # 检查是否有update_headers方法
-                if hasattr(self.ws_client, 'update_headers'):
-                    self.ws_client.update_headers(headers)
-                return await self.ws_client.connect()
-            else:
-                logger.warning(f"【{self.cookie_id}】增强WebSocket客户端不可用，使用原始方法")
-                return await self._create_websocket_connection_original(headers)
-        except Exception as e:
-            logger.warning(f"【{self.cookie_id}】增强WebSocket客户端连接失败，使用原始方法: {self._safe_str(e)}")
+            # 直接使用原始WebSocket连接方法，避免增强客户端的问题
+            logger.debug(f"【{self.cookie_id}】使用原始WebSocket连接方法")
             return await self._create_websocket_connection_original(headers)
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】WebSocket连接失败: {self._safe_str(e)}")
+            return None
 
     async def _create_websocket_connection_original(self, headers):
         """原始WebSocket连接方法（作为备用）"""

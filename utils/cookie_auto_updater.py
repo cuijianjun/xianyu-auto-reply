@@ -240,7 +240,17 @@ class CookieAutoUpdater:
                     
                     # 检查是否是系统过载或验证失败
                     error_str = str(ret_value)
-                    if 'FAIL_SYS_USER_VALIDATE' in error_str or '被挤爆啦' in error_str:
+                    if 'RGV587_ERROR' in error_str or '被挤爆啦' in error_str:
+                        if retry_count >= 3:  # 增加重试次数
+                            logger.error(f"系统过载，Token获取失败次数过多，停止重试: {ret_value}")
+                            return None
+                        
+                        # 系统过载时使用更长的等待时间
+                        wait_time = min(30 + (retry_count * 30), 120)  # 30秒到120秒的等待时间
+                        logger.warning(f"系统过载，等待 {wait_time} 秒后重试 (第{retry_count + 1}次)")
+                        await asyncio.sleep(wait_time)
+                        return await self.get_token(cookie_str, device_id, retry_count + 1)
+                    elif 'FAIL_SYS_USER_VALIDATE' in error_str:
                         if retry_count >= 2:  # 限制重试次数
                             logger.error(f"Token获取失败次数过多，停止重试: {ret_value}")
                             return None

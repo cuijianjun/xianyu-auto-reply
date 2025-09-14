@@ -14,8 +14,8 @@ __all__ = ["CookieManager", "manager"]
 class CookieManager:
     """管理多账号 Cookie 及其对应的 XianyuLive 任务和关键字"""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop):
-        self.loop = loop
+    def __init__(self, loop: asyncio.AbstractEventLoop = None):
+        self.loop = loop or asyncio.get_event_loop()
         self.cookies: Dict[str, str] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
         self.keywords: Dict[str, List[Tuple[str, str]]] = {}
