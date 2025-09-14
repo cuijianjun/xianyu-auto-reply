@@ -1152,46 +1152,29 @@ def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)
         user_id = current_user['user_id']
         from db_manager import db_manager
         
-        print(f"🔍 [DEBUG] /cookies/details 被调用")
-        print(f"🔍 [DEBUG] 当前用户: {current_user}")
-        print(f"🔍 [DEBUG] 用户ID: {user_id} (类型: {type(user_id)})")
-        print(f"🔍 [DEBUG] CookieManager状态: {'已初始化' if cookie_manager.manager is not None else '未初始化'}")
-        
         logger.info(f"开始获取Cookie详情: 用户ID={user_id}, 用户名={current_user.get('username', 'unknown')}")
-        logger.info(f"CookieManager状态: {'已初始化' if cookie_manager.manager is not None else '未初始化'}")
         
-        # 直接测试数据库连接
-        print(f"🔍 [DEBUG] 数据库管理器: {db_manager}")
-        print(f"🔍 [DEBUG] 数据库连接: {db_manager.conn}")
+        # 确保user_id是字符串类型，因为数据库中存储的是字符串
+        user_id_str = str(user_id)
         
-        # 强制重新初始化数据库连接
-        if not db_manager.conn:
-            print(f"🔍 [DEBUG] 数据库连接为空，重新初始化...")
-            db_manager.init_db()
-            print(f"🔍 [DEBUG] 重新初始化后的连接: {db_manager.conn}")
+        # 先尝试用字符串类型的user_id查询
+        user_cookies = db_manager.get_all_cookies(user_id_str)
         
-        user_cookies = db_manager.get_all_cookies(user_id)
-        print(f"🔍 [DEBUG] 数据库查询结果: {len(user_cookies)} 个Cookie")
-        print(f"🔍 [DEBUG] Cookie数据类型: {type(user_cookies)}")
+        # 如果没有找到，再尝试用整数类型查询
+        if len(user_cookies) == 0 and isinstance(user_id, str) and user_id.isdigit():
+            user_cookies = db_manager.get_all_cookies(int(user_id))
         
-        # 如果没有找到用户的cookies，尝试查询所有cookies
+        # 如果还是没有找到，查询所有cookies（兼容性处理）
         if len(user_cookies) == 0:
-            print(f"🔍 [DEBUG] 用户{user_id}没有cookies，查询所有cookies...")
-            all_cookies = db_manager.get_all_cookies()
-            print(f"🔍 [DEBUG] 所有cookies: {len(all_cookies)} 个")
-            print(f"🔍 [DEBUG] 所有cookies数据类型: {type(all_cookies)}")
-            
-            # 直接SQL查询检查
-            cursor = db_manager.conn.cursor()
-            cursor.execute("SELECT id, user_id, LENGTH(cookie) FROM cookies")
-            raw_cookies = cursor.fetchall()
-            print(f"🔍 [DEBUG] 原始SQL查询结果: {raw_cookies}")
+            logger.warning(f"用户{user_id}没有找到cookies，尝试查询所有cookies")
+            user_cookies = db_manager.get_all_cookies()
+        
+        logger.info(f"从数据库获取到{len(user_cookies)}个Cookie (类型: {type(user_cookies)})")
         
         # 处理不同的数据格式
         cookie_items = []
         if isinstance(user_cookies, list):
             # 新格式：列表包含字典 [{'id': 'xxx', 'cookie': 'xxx', 'user_id': xxx}, ...]
-            print(f"🔍 [DEBUG] 处理列表格式的cookies数据")
             for cookie_info in user_cookies:
                 if isinstance(cookie_info, dict) and 'id' in cookie_info:
                     cookie_id = cookie_info['id']
@@ -1199,63 +1182,53 @@ def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)
                     cookie_items.append((cookie_id, cookie_value))
         elif isinstance(user_cookies, dict):
             # 旧格式：字典格式 {'id': 'cookie_value', ...}
-            print(f"🔍 [DEBUG] 处理字典格式的cookies数据")
             cookie_items = list(user_cookies.items())
         else:
-            print(f"🔍 [DEBUG] 未知的cookies数据格式: {type(user_cookies)}")
+            logger.warning(f"未知的cookies数据格式: {type(user_cookies)}")
             cookie_items = []
         
-        print(f"🔍 [DEBUG] 处理后的cookie项目数: {len(cookie_items)}")
-        logger.info(f"从数据库获取到{len(cookie_items)}个Cookie")
+        logger.info(f"处理后得到{len(cookie_items)}个Cookie项目")
 
         result = []
         for cookie_id, cookie_value in cookie_items:
-            print(f"🔍 [DEBUG] 处理Cookie: {cookie_id}")
-            
-            # 如果cookie_manager.manager存在，使用它获取状态，否则默认为启用
-            if cookie_manager.manager is not None:
-                cookie_enabled = cookie_manager.manager.get_cookie_status(cookie_id)
-                print(f"🔍 [DEBUG] 从CookieManager获取状态: {cookie_id} = {cookie_enabled}")
-                logger.debug(f"从CookieManager获取状态: {cookie_id} = {cookie_enabled}")
-            else:
-                # CookieManager未初始化时，默认为启用状态
-                cookie_enabled = True
-                print(f"🔍 [DEBUG] CookieManager未初始化，使用默认状态: {cookie_id} = {cookie_enabled}")
-                logger.debug(f"CookieManager未初始化，使用默认状态: {cookie_id} = {cookie_enabled}")
-            
-            auto_confirm = db_manager.get_auto_confirm(cookie_id)
-            print(f"🔍 [DEBUG] auto_confirm: {auto_confirm}")
-            
-            # 获取备注信息
-            cookie_details = db_manager.get_cookie_details(cookie_id)
-            remark = cookie_details.get('remark', '') if cookie_details else ''
-            print(f"🔍 [DEBUG] cookie_details: {cookie_details}")
-            print(f"🔍 [DEBUG] remark: '{remark}'")
+            try:
+                # 如果cookie_manager.manager存在，使用它获取状态，否则默认为启用
+                if cookie_manager.manager is not None:
+                    cookie_enabled = cookie_manager.manager.get_cookie_status(cookie_id)
+                else:
+                    # CookieManager未初始化时，默认为启用状态
+                    cookie_enabled = True
+                
+                auto_confirm = db_manager.get_auto_confirm(cookie_id)
+                
+                # 获取备注信息
+                cookie_details = db_manager.get_cookie_details(cookie_id)
+                remark = cookie_details.get('remark', '') if cookie_details else ''
 
-            cookie_info = {
-                'id': cookie_id,
-                'value': cookie_value,
-                'enabled': cookie_enabled,
-                'auto_confirm': auto_confirm,
-                'remark': remark,
-                'pause_duration': cookie_details.get('pause_duration', 10) if cookie_details else 10
-            }
-            
-            result.append(cookie_info)
-            print(f"🔍 [DEBUG] 添加Cookie信息: {cookie_id}, enabled={cookie_enabled}, remark='{remark}'")
-            logger.debug(f"添加Cookie信息: {cookie_id}, enabled={cookie_enabled}, remark='{remark}'")
-        
-        print(f"🔍 [DEBUG] 最终结果: {len(result)} 个Cookie")
-        print(f"🔍 [DEBUG] 返回数据: {result}")
+                cookie_info = {
+                    'id': cookie_id,
+                    'value': cookie_value,
+                    'enabled': cookie_enabled,
+                    'auto_confirm': auto_confirm,
+                    'remark': remark,
+                    'pause_duration': cookie_details.get('pause_duration', 10) if cookie_details else 10
+                }
+                
+                result.append(cookie_info)
+                logger.debug(f"添加Cookie信息: {cookie_id}, enabled={cookie_enabled}, remark='{remark}'")
+                
+            except Exception as cookie_error:
+                logger.error(f"处理Cookie {cookie_id} 时出错: {cookie_error}")
+                # 即使单个Cookie处理失败，也继续处理其他Cookie
+                continue
         
         logger.info(f"获取Cookie详情完成: 用户ID={user_id}, 返回{len(result)}个Cookie")
         return result
         
     except Exception as e:
-        print(f"❌ [DEBUG] /cookies/details 异常: {e}")
-        import traceback
-        traceback.print_exc()
         logger.error(f"/cookies/details 异常: {e}")
+        import traceback
+        logger.error(f"详细错误信息: {traceback.format_exc()}")
         return []
 
 
