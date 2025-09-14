@@ -1107,30 +1107,45 @@ def list_cookies(current_user: Dict[str, Any] = Depends(get_current_user)):
 @app.get("/cookies/details")
 def get_cookies_details(current_user: Dict[str, Any] = Depends(get_current_user)):
     """获取所有Cookie的详细信息（包括值和状态）"""
-    if cookie_manager.manager is None:
-        return []
-
     # 获取当前用户的cookies
     user_id = current_user['user_id']
     from db_manager import db_manager
+    
+    logger.info(f"开始获取Cookie详情: 用户ID={user_id}, 用户名={current_user.get('username', 'unknown')}")
+    logger.info(f"CookieManager状态: {'已初始化' if cookie_manager.manager is not None else '未初始化'}")
+    
     user_cookies = db_manager.get_all_cookies(user_id)
+    logger.info(f"从数据库获取到{len(user_cookies)}个Cookie: {list(user_cookies.keys())}")
 
     result = []
     for cookie_id, cookie_value in user_cookies.items():
-        cookie_enabled = cookie_manager.manager.get_cookie_status(cookie_id)
+        # 如果cookie_manager.manager存在，使用它获取状态，否则默认为启用
+        if cookie_manager.manager is not None:
+            cookie_enabled = cookie_manager.manager.get_cookie_status(cookie_id)
+            logger.debug(f"从CookieManager获取状态: {cookie_id} = {cookie_enabled}")
+        else:
+            # CookieManager未初始化时，默认为启用状态
+            cookie_enabled = True
+            logger.debug(f"CookieManager未初始化，使用默认状态: {cookie_id} = {cookie_enabled}")
+        
         auto_confirm = db_manager.get_auto_confirm(cookie_id)
         # 获取备注信息
         cookie_details = db_manager.get_cookie_details(cookie_id)
         remark = cookie_details.get('remark', '') if cookie_details else ''
 
-        result.append({
+        cookie_info = {
             'id': cookie_id,
             'value': cookie_value,
             'enabled': cookie_enabled,
             'auto_confirm': auto_confirm,
             'remark': remark,
             'pause_duration': cookie_details.get('pause_duration', 10) if cookie_details else 10
-        })
+        }
+        
+        result.append(cookie_info)
+        logger.debug(f"添加Cookie信息: {cookie_id}, enabled={cookie_enabled}, remark='{remark}'")
+    
+    logger.info(f"获取Cookie详情完成: 用户ID={user_id}, 返回{len(result)}个Cookie")
     return result
 
 
