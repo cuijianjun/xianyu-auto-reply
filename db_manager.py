@@ -1630,6 +1630,29 @@ class DatabaseManager:
                 logger.error(f"获取表 {table_name} 数据失败: {e}")
                 return [], []
 
+    def get_keywords(self, cookie_id: str):
+        """获取关键词列表"""
+        with self.lock:
+            try:
+                if not self.conn:
+                    self.init_db()
+                cursor = self.conn.cursor()
+                
+                # 从keywords表获取关键词数据
+                cursor.execute('''
+                    SELECT keyword 
+                    FROM keywords 
+                    WHERE cookie_id = ?
+                    ORDER BY keyword
+                ''', (cookie_id,))
+                
+                results = cursor.fetchall()
+                return [row[0] for row in results] if results else []
+                
+            except sqlite3.Error as e:
+                logger.error(f"获取关键词失败: {e}")
+                return []
+
     def get_keywords_with_item_id(self, cookie_id: str):
         """获取包含商品ID的关键词列表"""
         with self.lock:

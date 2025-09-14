@@ -21,7 +21,7 @@ class UsageStatistics:
     def __init__(self):
         # 默认启用统计
         self.enabled = True
-        self.api_endpoint = "http://xianyu.zhinianblog.cn/?action=statistics"  # PHP统计接收端点
+        self.api_endpoint = "https://xianyu.zhinianblog.cn/?action=statistics"  # PHP统计接收端点
         self.timeout = 5
         self.retry_count = 1
 

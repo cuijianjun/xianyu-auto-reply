@@ -5106,9 +5106,9 @@ class XianyuLive:
                     logger.debug(f"【{self.cookie_id}】WebSocket headers: {headers}")
 
                     # 兼容不同版本的websockets库
-                    websocket_conn = await self._create_websocket_connection(headers)
-                    if websocket_conn:
-                        async with websocket_conn as websocket:
+                    websocket = await self._create_websocket_connection(headers)
+                    if websocket:
+                        try:
                             logger.info(f"【{self.cookie_id}】WebSocket连接建立成功！")
                             self.ws = websocket
 
@@ -5158,6 +5158,14 @@ class XianyuLive:
                                 except Exception as e:
                                     logger.error(f"处理消息出错: {self._safe_str(e)}")
                                     continue
+                        finally:
+                            # 确保WebSocket连接被正确关闭
+                            if websocket and not websocket.closed:
+                                try:
+                                    await websocket.close()
+                                    logger.info(f"【{self.cookie_id}】WebSocket连接已关闭")
+                                except Exception as e:
+                                    logger.warning(f"【{self.cookie_id}】关闭WebSocket连接时出错: {self._safe_str(e)}")
                     else:
                         logger.error(f"【{self.cookie_id}】WebSocket连接创建失败")
                         break
