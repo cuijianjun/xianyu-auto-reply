@@ -4648,12 +4648,25 @@ def get_user_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
 
         # 获取所有订单数据
         all_orders = []
-        for cookie_id in user_cookies.keys():
-            orders = db_manager.get_orders_by_cookie(cookie_id, limit=1000)  # 增加限制数量
-            # 为每个订单添加cookie_id信息
-            for order in orders:
-                order['cookie_id'] = cookie_id
-                all_orders.append(order)
+        # 处理新的列表格式
+        if isinstance(user_cookies, list):
+            # 新格式：列表包含字典 [{'id': 'xxx', 'cookie': 'xxx', 'user_id': xxx}, ...]
+            for cookie_info in user_cookies:
+                if isinstance(cookie_info, dict) and 'id' in cookie_info:
+                    cookie_id = cookie_info['id']
+                    orders = db_manager.get_orders_by_cookie(cookie_id, limit=1000)  # 增加限制数量
+                    # 为每个订单添加cookie_id信息
+                    for order in orders:
+                        order['cookie_id'] = cookie_id
+                        all_orders.append(order)
+        elif isinstance(user_cookies, dict):
+            # 旧格式：字典格式 {'id': 'cookie_value', ...}
+            for cookie_id in user_cookies.keys():
+                orders = db_manager.get_orders_by_cookie(cookie_id, limit=1000)  # 增加限制数量
+                # 为每个订单添加cookie_id信息
+                for order in orders:
+                    order['cookie_id'] = cookie_id
+                    all_orders.append(order)
 
         # 按创建时间倒序排列
         all_orders.sort(key=lambda x: x.get('created_at', ''), reverse=True)

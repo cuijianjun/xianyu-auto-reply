@@ -1739,5 +1739,46 @@ class DatabaseManager:
                 logger.error(f"获取关键词失败: {e}")
                 return []
 
+    def get_orders_by_cookie(self, cookie_id: str, limit: int = 100):
+        """根据Cookie ID获取订单列表"""
+        with self.lock:
+            try:
+                if not self.conn:
+                    self.init_db()
+                cursor = self.conn.cursor()
+                
+                # 从orders表获取订单数据
+                cursor.execute('''
+                    SELECT order_id, buyer_id, item_id, item_title, price, 
+                           quantity, status, auto_confirm, created_at, updated_at
+                    FROM orders 
+                    WHERE cookie_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (cookie_id, limit))
+                
+                results = cursor.fetchall()
+                orders = []
+                for row in results:
+                    order = {
+                        "order_id": row[0],
+                        "buyer_id": row[1],
+                        "item_id": row[2],
+                        "item_title": row[3],
+                        "price": row[4],
+                        "quantity": row[5],
+                        "status": row[6],
+                        "auto_confirm": bool(row[7]),
+                        "created_at": row[8],
+                        "updated_at": row[9]
+                    }
+                    orders.append(order)
+                
+                return orders
+                
+            except sqlite3.Error as e:
+                logger.error(f"获取订单失败: {e}")
+                return []
+
 # 创建全局数据库管理器实例
 db_manager = DatabaseManager()
