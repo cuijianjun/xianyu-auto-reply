@@ -54,7 +54,7 @@ class CookieManager:
             """定时刷新Cookie的协程任务"""
             refresh_interval = 3600  # 默认1小时刷新一次
             trace_id = TraceContext.generate_trace_id()
-            cookie_logger = LoggerManager.get_logger(f"CookieRefresh.{cookie_id}")
+            cookie_logger = LoggerManager(f"CookieRefresh.{cookie_id}").get_logger()
             
             try:
                 cookie_logger.info(f"开始定时刷新Cookie，间隔: {refresh_interval}秒")
@@ -215,11 +215,29 @@ class CookieManager:
         """从数据库加载所有Cookie、关键字和状态"""
         try:
             # 加载所有Cookie
-            self.cookies = db_manager.get_all_cookies()
+            cookies_data = db_manager.get_all_cookies()
+            
+            # 处理不同的返回格式（兼容性处理）
+            if isinstance(cookies_data, list):
+                # 新格式：列表格式 [{'id': 'xxx', 'cookie': 'xxx', 'user_id': xxx}, ...]
+                self.cookies = {}
+                for cookie_item in cookies_data:
+                    if isinstance(cookie_item, dict) and 'id' in cookie_item and 'cookie' in cookie_item:
+                        self.cookies[cookie_item['id']] = cookie_item['cookie']
+                    else:
+                        logger.warning(f"跳过无效的Cookie项: {cookie_item}")
+            elif isinstance(cookies_data, dict):
+                # 旧格式：字典格式 {'id': 'cookie_value', ...}
+                self.cookies = cookies_data
+            else:
+                logger.error(f"未知的Cookie数据格式: {type(cookies_data)}")
+                self.cookies = {}
+            
             # 加载所有关键字 - 为每个cookie单独加载
             self.keywords = {}
             for cookie_id in self.cookies.keys():
                 self.keywords[cookie_id] = db_manager.get_keywords(cookie_id)
+            
             # 加载所有Cookie状态（默认启用）
             self.cookie_status = {}
             # 加载所有auto_confirm设置
@@ -229,9 +247,15 @@ class CookieManager:
                 self.cookie_status[cookie_id] = True
                 # 设置默认auto_confirm设置为False
                 self.auto_confirm_settings[cookie_id] = False
+            
             logger.info(f"从数据库加载了 {len(self.cookies)} 个Cookie、{len(self.keywords)} 组关键字、{len(self.cookie_status)} 个状态记录和 {len(self.auto_confirm_settings)} 个自动确认设置")
         except Exception as e:
             logger.error(f"从数据库加载数据失败: {e}")
+            # 确保初始化基本数据结构
+            self.cookies = {}
+            self.keywords = {}
+            self.cookie_status = {}
+            self.auto_confirm_settings = {}
 
     def reload_from_db(self):
         """重新从数据库加载所有数据（用于备份导入后刷新）"""
@@ -785,6 +809,30 @@ class CookieManager:
         """获取指定账号的Token详细信息"""
         token_info = token_manager.get_token_info(cookie_id)
         return token_info.to_dict() if token_info else None
+
+    async def start(self):
+        """启动CookieManager"""
+        self.logger.info("CookieManager启动中...")
+        # 这里可以添加启动逻辑，目前在__init__中已经完成了初始化
+        self.logger.info("CookieManager启动完成")
+        
+    async def stop(self):
+        """停止CookieManager"""
+        self.logger.info("CookieManager停止中...")
+        
+        # 停止所有Cookie刷新任务
+        for cookie_id, task in self.cookie_refresh_timers.items():
+            if not task.cancelled():
+                task.cancel()
+                self.logger.info(f"已取消Cookie {cookie_id} 的刷新任务")
+        
+        # 停止所有XianyuLive任务
+        for cookie_id, task in self.tasks.items():
+            if not task.cancelled():
+                task.cancel()
+                self.logger.info(f"已取消Cookie {cookie_id} 的XianyuLive任务")
+        
+        self.logger.info("CookieManager停止完成")
 
 
 # 在 Start.py 中会把此变量赋值为具体实例
